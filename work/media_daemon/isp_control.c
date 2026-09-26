@@ -77,6 +77,12 @@ static int get_sharpness_cfg(int d, int *v) { (void)d; *v = isp_config_get_sharp
 static int set_pltm_cfg(int d, int v)   { (void)d; return isp_config_set_pltm(v); }
 static int get_pltm_cfg(int d, int *v)  { (void)d; *v = isp_config_get_pltm(); return 0; }
 static int set_tdf_cfg(int d, int v)    { (void)d; return isp_config_set_tdf(v); }
+static int set_nr2d_cfg(int d, int v)   { (void)d; return isp_config_set_nr2d(v); }
+static int get_nr2d_cfg(int d, int *v)  { (void)d; *v = isp_config_want_nr2d(); return 0; }
+static int set_cnr_cfg(int d, int v)    { (void)d; return isp_config_set_cnr(v); }
+static int get_cnr_cfg(int d, int *v)   { (void)d; *v = isp_config_want_cnr(); return 0; }
+static int set_venc3d(int d, int v)     { (void)d; return mediad_set_venc3d(v); }
+static int get_venc3d(int d, int *v)    { (void)d; *v = mediad_get_venc3d(); return 0; }
 static int get_tdf_cfg(int d, int *v)   { (void)d; *v = isp_config_get_tdf(); return 0; }
 static int set_wdr(int d, int v)        { return AW_MPI_ISP_SetPltmWDR(d, v); }
 static int set_flicker(int d, int v)    { return AW_MPI_ISP_SetFlicker(d, v); }
@@ -391,6 +397,12 @@ static struct ctl g_controls[] = {
     /* 3DNR module on/off (Protect enable3dnr). Default OFF (0): stock's 3DNR
      * leaves a ghosting "arm shadow" on motion. Overridable (config/Protect). */
     { "tdf",        ISP_CTL_3DNR,       0,   1,   0,   set_tdf_cfg,    get_tdf_cfg },
+    /* The other denoisers, each switchable on its own: ISP spatial (2D) and
+     * chroma denoise (default on, the tuning's own strength), and the
+     * encoder's 3D filter (0 off .. 3; rmm runs 3, which smears motion). */
+    { "nr2d",       0,                  0,   1,   1,   set_nr2d_cfg,   get_nr2d_cfg },
+    { "cnr",        0,                  0,   1,   1,   set_cnr_cfg,    get_cnr_cfg },
+    { "venc3d",     0,                  0,   3,   0,   set_venc3d,     get_venc3d },
     /* Protect drives HDR plus bitrate (ChangeIspSettings.wdr /
      * ChangeVideoSettings bitRateCbrAvg|VbrMax). `wdr` (PLTM strength) is
      * RE-LOCKED 2026-09-14: with the sister client still mapping Protect's
@@ -621,6 +633,53 @@ int isp_control_pending_dump(char *out, size_t n)
     return 1;
 }
 
+/* mediad.conf path (set by isp_control_load_config) and a writer for the
+ * socket's `pin`/`unpin`: the firmware web page saves through these, so
+ * mediad stays the only writer of its own config. */
+static char g_conf_path[160] = "/tmp/sd/unifi/etc/mediad.conf";
+
+/* Rewrite mediad.conf with `key=value` (val != NULL) or without any `key=` /
+ * `pin_key=` line (val == NULL). Comments and other lines are kept; the file
+ * is replaced by rename so a power cut leaves the old or the new one. */
+static int conf_store(const char *key, const int *val)
+{
+    char tmp[176], line[256];
+    FILE *in, *out;
+    int done = 0;
+    size_t kl = strlen(key);
+
+    snprintf(tmp, sizeof(tmp), "%s.tmp", g_conf_path);
+    out = fopen(tmp, "w");
+    if (!out)
+        return -1;
+    in = fopen(g_conf_path, "r");
+    while (in && fgets(line, sizeof(line), in)) {
+        const char *k = line;
+
+        if (strncmp(k, "pin_", 4) == 0)
+            k += 4;
+        if (line[0] != '#' && strncmp(k, key, kl) == 0 &&
+            (k[kl] == '=' || k[kl] == ' ' || k[kl] == '\t')) {
+            if (val && !done)
+                fprintf(out, "%s=%d\n", key, *val);
+            done = 1;
+            continue;
+        }
+        fputs(line, out);
+    }
+    if (in)
+        fclose(in);
+    if (val && !done)
+        fprintf(out, "%s=%d\n", key, *val);
+    if (fflush(out) != 0 || fsync(fileno(out)) != 0) {
+        fclose(out);
+        unlink(tmp);
+        return -1;
+    }
+    fclose(out);
+    return rename(tmp, g_conf_path);
+}
+
 static const struct ctl *find_ctl(const char *key)
 {
     int i;
@@ -732,6 +791,42 @@ static void handle_conn(int fd)
                 pend_set((int)(c - g_controls), value);
                 dprintf(fd, "ok %s %d\n", key, value);
             }
+        } else if (sscanf(line, "pin %63s %d", key, &value) == 2) {
+            /* The firmware web page's save: apply the value regardless of any
+             * pin/lock, pin it against Protect, and persist it to mediad.conf. */
+            const struct ctl *c = find_ctl(key);
+            if (!c) {
+                dprintf(fd, "err unknown key %s\n", key);
+            } else if (value < c->vmin || value > c->vmax) {
+                dprintf(fd, "err %s out of range [%d,%d]\n", key, c->vmin, c->vmax);
+            } else {
+                int i = (int)(c - g_controls);
+                pend_set(i, value);
+                g_controls[i].pinned = 1;
+                if (conf_store(key, &value) != 0)
+                    dprintf(fd, "err %s applied but not saved\n", key);
+                else
+                    dprintf(fd, "ok %s %d pinned\n", key, value);
+            }
+        } else if (sscanf(line, "unpin %63s", key) == 1) {
+            /* Hand the key back to Protect and drop it from mediad.conf. The
+             * current value stays until Protect (or `set`) changes it. */
+            const struct ctl *c = find_ctl(key);
+            if (!c) {
+                dprintf(fd, "err unknown key %s\n", key);
+            } else {
+                g_controls[c - g_controls].pinned = 0;
+                if (conf_store(key, NULL) != 0)
+                    dprintf(fd, "err %s unpinned but not saved\n", key);
+                else
+                    dprintf(fd, "ok %s unpinned\n", key);
+            }
+        } else if (sscanf(line, "pinned %63s", key) == 1) {
+            const struct ctl *c = find_ctl(key);
+            if (!c)
+                dprintf(fd, "err unknown key %s\n", key);
+            else
+                dprintf(fd, "ok %s %d\n", key, c->pinned ? 1 : 0);
         } else if (sscanf(line, "dump %159s", patharg) == 1) {
             if (strncmp(patharg, "/tmp/", 5) != 0) {
                 dprintf(fd, "err dump path must be under /tmp/\n");
@@ -1025,6 +1120,7 @@ int isp_control_load_config(const char *path)
 
     if (!path || !path[0])
         path = "/tmp/sd/unifi/etc/mediad.conf";
+    snprintf(g_conf_path, sizeof(g_conf_path), "%s", path);
     f = fopen(path, "r");
     if (!f)
         return -1;

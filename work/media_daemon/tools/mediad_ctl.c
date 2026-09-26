@@ -33,7 +33,8 @@ int main(int argc, char **argv)
 
     if (argc < 2) {
         fprintf(stderr,
-                "usage: %s {list|reset|get <key>|set <key> <value>|dump <path>|"
+                "usage: %s {list|reset|get <key>|set <key> <value>|pin <key> <value>|"
+                "unpin <key>|pinned <key>|dump <path>|"
                 "peek <off>|poke <off> <val>|scale <off> <len> <num> <den>|"
                 "offset <off> <len> <delta>|xclear}\n", argv[0]);
         return 2;
@@ -45,6 +46,10 @@ int main(int argc, char **argv)
         snprintf(cmd, sizeof(cmd), "get %s\n", argv[2]);
     } else if (!strcmp(argv[1], "set") && argc == 4) {
         snprintf(cmd, sizeof(cmd), "set %s %s\n", argv[2], argv[3]);
+    } else if (!strcmp(argv[1], "pin") && argc == 4) {
+        snprintf(cmd, sizeof(cmd), "pin %s %s\n", argv[2], argv[3]);
+    } else if ((!strcmp(argv[1], "unpin") || !strcmp(argv[1], "pinned")) && argc == 3) {
+        snprintf(cmd, sizeof(cmd), "%s %s\n", argv[1], argv[2]);
     } else if (!strcmp(argv[1], "dump") && argc == 3) {
         snprintf(cmd, sizeof(cmd), "dump %s\n", argv[2]);
     } else if (!strcmp(argv[1], "peek") && argc == 3) {
@@ -61,7 +66,8 @@ int main(int argc, char **argv)
         snprintf(cmd, sizeof(cmd), "xclear\n");
     } else {
         fprintf(stderr,
-                "usage: %s {list|reset|get <key>|set <key> <value>|dump <path>|"
+                "usage: %s {list|reset|get <key>|set <key> <value>|pin <key> <value>|"
+                "unpin <key>|pinned <key>|dump <path>|"
                 "peek <off>|poke <off> <val>|scale <off> <len> <num> <den>|"
                 "offset <off> <len> <delta>|xclear}\n", argv[0]);
         return 2;

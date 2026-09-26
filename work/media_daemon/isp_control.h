@@ -30,6 +30,8 @@
  * main.c. Clamped to [48 k, 3 M] internally. Used by the `bitrate` control. */
 int mediad_set_bitrate(const char *name, unsigned int bps);
 unsigned int mediad_get_bitrate(const char *name);
+int mediad_set_venc3d(int level);     /* encoder 3D filter, all channels */
+int mediad_get_venc3d(void);
 
 /* Shutter exposure mode (0 auto, 1 preview/short, 2 night/long), main.c. */
 int mediad_set_shutter(int mode);

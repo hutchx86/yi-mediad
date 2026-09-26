@@ -38,5 +38,9 @@ int isp_config_get_gamma(void);
 int isp_config_get_pltm(void);
 int isp_config_get_tdf(void);
 int isp_config_want_tdf(void);
+int isp_config_set_nr2d(int on);      /* spatial (2D) denoise; 1 == tuning */
+int isp_config_want_nr2d(void);
+int isp_config_set_cnr(int on);       /* chroma denoise; 1 == tuning */
+int isp_config_want_cnr(void);
 
 #endif /* MEDIAD_ISP_CONFIG_H */

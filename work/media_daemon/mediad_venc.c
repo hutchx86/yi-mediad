@@ -393,6 +393,15 @@ int mediad_venc_set_bitrate(struct mediad_venc *v, int bps)
     return VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE, &bps) == 0 ? 0 : -1;
 }
 
+int mediad_venc_set_filter3d(struct mediad_venc *v, int level)
+{
+    unsigned char lvl = (unsigned char)(level < 0 ? 0 : level > 3 ? 3 : level);
+
+    if (v == NULL || v->enc == NULL)
+        return -1;
+    return VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FILTER_3D, &lvl) == 0 ? 0 : -1;
+}
+
 /*
  * Burned-in overlay. The vendor middleware's own OSD path ends here too: it
  * packs its regions into a fwm_venc_overlay_t and calls

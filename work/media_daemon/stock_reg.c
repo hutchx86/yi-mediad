@@ -95,24 +95,29 @@ int isp_stock_reg_peek(unsigned int off, unsigned int *val)
 int __wrap_isp_set_load_reg(struct hw_isp_device *isp,
                             struct isp_table_reg_map *reg)
 {
-    /* Enforce the tdf (3DNR) config on the final module-enable word (+0x1a0,
-     * D3D = bit 5). The ISP rebuilds the flags from the stock tuning, so 3DNR
-     * ran whatever mediad.conf said - the ghosting on motion and dark fabric.
-     * Spatial denoise (D2D, bit 4) is deliberately left as the tuning sets it. */
+    /* Enforce the denoise switches on the final module-enable word (+0x1a0):
+     * D2D (spatial) bit 4, D3D (tdf/3DNR) bit 5, chroma denoise bit 23. The ISP
+     * rebuilds the flags from the stock tuning on every reload, so without this
+     * 3DNR ran whatever mediad.conf said (ghosting on motion and dark fabric).
+     * tdf is only ever cleared (its "on" is the tuning's own); nr2d/cnr are
+     * enforced both ways so a night tuning cannot silently drop them. */
     if (reg && reg->addr && reg->size >= 0x1a4) {
-        static int logged;
-        unsigned int m, off = 0;
+        static unsigned int logged_m = ~0u;
+        unsigned int m, want;
         memcpy(&m, (unsigned char *)reg->addr + 0x1a0, 4);
+        want = m;
         if (!isp_config_want_tdf())
-            off |= 1u << 5;
-        if (m & off) {
-            if (!logged) {
-                fprintf(stderr, "stock_reg: module_en %08x -> %08x (tdf off)\n",
-                        m, m & ~off);
-                logged = 1;
+            want &= ~(1u << 5);
+        want = isp_config_want_nr2d() ? (want | (1u << 4)) : (want & ~(1u << 4));
+        want = isp_config_want_cnr() ? (want | (1u << 23)) : (want & ~(1u << 23));
+        if (want != m) {
+            if (want != logged_m) {
+                fprintf(stderr, "stock_reg: module_en %08x -> %08x (tdf=%d nr2d=%d cnr=%d)\n",
+                        m, want, isp_config_want_tdf(), isp_config_want_nr2d(),
+                        isp_config_want_cnr());
+                logged_m = want;
             }
-            m &= ~off;
-            memcpy((unsigned char *)reg->addr + 0x1a0, &m, 4);
+            memcpy((unsigned char *)reg->addr + 0x1a0, &want, 4);
         }
     }
 

@@ -38,6 +38,8 @@ static int g_brightness = 50;
 static int g_contrast = 50;
 static int g_denoise = 0;   /* 0 = denoise/3DNR off (stock ghosts on motion) */
 static int g_tdf_want = 0;  /* configured tdf (see isp_config_want_tdf) */
+static int g_nr2d_want = 1; /* spatial (2D) denoise; 1 == the tuning's own */
+static int g_cnr_want = 1;  /* chroma denoise; 1 == the tuning's own */
 static int g_exposure = 50;
 static int g_gamma = 50;   /* 0 = darkest, 50 = neutral (exp 0.85), 100 = light */
 
@@ -96,9 +98,18 @@ void isp_control_hook(fwi_hw_module_cfg_t *cfg)
 {
     int i;
 
+    /* The per-frame enables must agree with the denoise switches, which
+     * stock_reg.c also enforces on the load-reg word: two writers disagreeing
+     * flipped a module between/within frames (dark horizontal bands, r35gb
+     * 2026-09-26, denoise=50 from Protect with nr2d/cnr off). */
+    cfg->module_enable_flag = g_nr2d_want ? (cfg->module_enable_flag | FWI_ISP_FEATURES_D2D)
+                                          : (cfg->module_enable_flag & ~FWI_ISP_FEATURES_D2D);
+    cfg->module_enable_flag = g_cnr_want ? (cfg->module_enable_flag | FWI_ISP_FEATURES_CHROMA_DENOISE)
+                                         : (cfg->module_enable_flag & ~FWI_ISP_FEATURES_CHROMA_DENOISE);
+    if (!g_tdf_want)
+        cfg->module_enable_flag &= ~FWI_ISP_FEATURES_D3D;
     if (g_denoise > 0) {
-        cfg->module_enable_flag |= FWI_ISP_FEATURES_D2D | FWI_ISP_FEATURES_D3D |
-                                    FWI_ISP_FEATURES_CHROMA_DENOISE;
+        /* strength ramp: thresholds only; which modules run is the switches' call */
         for (i = 0; i < ISP_REG_TBL_LENGTH; i++) {
             int th = (8 + i * 3) * g_denoise / 25;
             cfg->bayer_denoise_cfg.bayer_denoise_threshold[i] = (uint16_t)th;
@@ -472,26 +483,44 @@ int isp_config_get_pltm(void)
 
 /* 3DNR (tdf) on/off; vendor tdf_en=1, so 1 == stock. Matches Protect's
  * `enable3dnr` boolean. */
+static int set_module_en(int32_t *field, int *want, int on);
+
 int isp_config_set_tdf(int on)
 {
-    fwi_enable_arg_t en;
-    fwi_tuning_enables_t *ts = &isp_ctx[ISP_DEV].tuning.enables;
-
-    ts->denoise_3d_en = on ? 1 : 0;
-    g_tdf_want = ts->denoise_3d_en;
-    enable_cfg_from(&en, ts);
-    isp_set_cfg(ISP_DEV, HW_ISP_CFG_TEST, HW_ISP_CFG_TEST_ENABLE, &en);
-    isp_update(ISP_DEV);
-    return 0;
+    return set_module_en(&isp_ctx[ISP_DEV].tuning.enables.denoise_3d_en, &g_tdf_want, on);
 }
 /* mediad's configured intent. isp_test_settings.tdf_en itself gets refreshed
  * from the stock tuning at runtime, so it cannot be trusted to stay 0. */
 int isp_config_want_tdf(void) { return g_tdf_want; }
 
-int isp_config_get_tdf(void)
+int isp_config_get_tdf(void) { return g_tdf_want; }
+
+/* Denoise module switches (tdf, spatial 2D, chroma). Edit the LIVE tuning's
+ * enable and re-apply it with isp_ctx_config_update(), the same path the
+ * day/night import uses. NOT isp_set_cfg(TEST_ENABLE) + isp_update(): that
+ * copies the stored (day) tuning back over the live one, so a toggle at night
+ * put the day CCM on the IR image - a purple cast until restart (r35gb
+ * 2026-09-26). The final module-enable word is also enforced at load-reg
+ * (stock_reg.c), since a later tuning reload rebuilds it. */
+static int set_module_en(int32_t *field, int *want, int on)
 {
-    return isp_ctx[ISP_DEV].tuning.enables.denoise_3d_en ? 1 : 0;
+    *field = on ? 1 : 0;
+    *want = *field;
+    isp_ctx_config_update(&isp_ctx[ISP_DEV]);
+    return 0;
 }
+
+int isp_config_set_nr2d(int on)
+{
+    return set_module_en(&isp_ctx[ISP_DEV].tuning.enables.denoise_2d_en, &g_nr2d_want, on);
+}
+int isp_config_want_nr2d(void) { return g_nr2d_want; }
+
+int isp_config_set_cnr(int on)
+{
+    return set_module_en(&isp_ctx[ISP_DEV].tuning.enables.chroma_denoise_en, &g_cnr_want, on);
+}
+int isp_config_want_cnr(void) { return g_cnr_want; }
 
 /* Day/night tuning swap (calls.md "Night Vision"). parser_ini_info() re-fills
  * isp_ini_cfg from the vendor day/night blob (`ir` selects it); apply_all()
