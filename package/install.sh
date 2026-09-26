@@ -47,6 +47,14 @@ else
     install -m 0644 "$HERE/unifi/etc/mediad.conf" "$PREFIX/etc/mediad.conf"
     echo "  installed default mediad.conf"
 fi
+# Per-model facts (mediad.<model>.env, e.g. r35gb's sensor/crop geometry) are
+# ours and always refreshed; without them a model can stall at ~1 fps. A local
+# mediad.env (per-deploy knobs) is never touched.
+for env in "$HERE/unifi/etc/"mediad.*.env; do
+    [ -f "$env" ] || continue
+    install -m 0644 "$env" "$PREFIX/etc/$(basename "$env")"
+    echo "  installed $(basename "$env")"
+done
 
 say "unifi.cfg: IS_MEDIAD=yes"
 if [ -f "$CFG" ]; then
