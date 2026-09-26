@@ -925,6 +925,8 @@ static int venc_start(media_chan *ch)
      *                   the capture at this offset (input crop, no scaling)
      *   MEDIAD_OUT_W / MEDIAD_OUT_H  HIGH displayed size (SPS crop of the
      *                   encoded picture; default = encoded size)
+     *   MEDIAD_OUT_X / MEDIAD_OUT_Y  offset of that window in the picture
+     *                   (even px; default centred; e.g. skip bad edge columns)
      *   MEDIAD_GOP      keyframe interval in frames, both channels
      *   MEDIAD_GOP_HIGH / MEDIAD_GOP_LOW  per channel, override MEDIAD_GOP
      *                   (default 5 s HIGH / 1 s LOW: what Protect requests via
@@ -938,6 +940,7 @@ static int venc_start(media_chan *ch)
         cfg.pic_w = ch->pic_w;
         cfg.pic_h = ch->pic_h;
         cfg.out_w = cfg.out_h = 0;
+        cfg.out_x = cfg.out_y = -1;
         cfg.crop_x = cfg.crop_y = -1;
         cfg.fps = g_fps;
         cfg.bitrate = (int)ch->bitrate;
@@ -964,6 +967,8 @@ static int venc_start(media_chan *ch)
                 cfg.crop_x = cfg.crop_y = -1;
             if ((e = getenv("MEDIAD_OUT_W"))) cfg.out_w = atoi(e);
             if ((e = getenv("MEDIAD_OUT_H"))) cfg.out_h = atoi(e);
+            if ((e = getenv("MEDIAD_OUT_X"))) cfg.out_x = atoi(e);
+            if ((e = getenv("MEDIAD_OUT_Y"))) cfg.out_y = atoi(e);
         }
         if ((e = getenv("MEDIAD_FASTENC"))) cfg.fastenc = atoi(e);
         fprintf(stderr, "[%s] venc profile=%d rc=%s minqp=%d maxqp=%d gop=%d 3dnr=%d\n",

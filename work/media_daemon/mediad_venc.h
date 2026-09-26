@@ -13,6 +13,7 @@ struct mediad_venc_cfg {
     int src_w, src_h;         /* capture (VI) size */
     int pic_w, pic_h;         /* encoded size */
     int out_w, out_h;         /* displayed window (SPS crop), 0 = pic size */
+    int out_x, out_y;         /* window offset in the picture, -1 = centred */
     int crop_x, crop_y;       /* read a pic_w x pic_h window at this offset of
                                * the capture (no scaling); -1 = off */
     int fps;

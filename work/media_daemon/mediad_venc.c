@@ -95,6 +95,13 @@ static void apply_defaults(struct mediad_venc *v, const struct mediad_venc_cfg *
         if (VideoEncSetParameter(v->enc, FWM_VENC_PARAM_DISPLAY_SIZE, &show) != 0)
             fprintf(stderr, "[venc] chn=%d display size %dx%d not supported\n",
                     cfg->chn, cfg->out_w, cfg->out_h);
+        /* Only when asked: without MEDIAD_OUT_X/Y the call is never made. */
+        if (cfg->out_x >= 0 || cfg->out_y >= 0) {
+            fwm_venc_display_offset_t off = { cfg->out_x, cfg->out_y };
+            if (VideoEncSetParameter(v->enc, FWM_VENC_PARAM_DISPLAY_OFFSET, &off) != 0)
+                fprintf(stderr, "[venc] chn=%d display offset %d,%d not supported\n",
+                        cfg->chn, cfg->out_x, cfg->out_y);
+        }
     }
     VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FRAME_RATE, &fps);
     VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE, &bitrate);
