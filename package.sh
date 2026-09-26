@@ -101,6 +101,11 @@ SRC
 # found through the $ORIGIN/../lib rpath. No vendor encoder libraries ship.
 cp work/media_daemon/build-rtos-v/libvenc_base.so dist/unifi/lib/libvenc_base.so
 "$STRIP" dist/unifi/lib/libvenc_base.so 2>/dev/null || true
+# vin_crop_shim.so: LD_PRELOAD VIPP crop (VIDIOC_S_SELECTION) for models whose
+# capture margin is garbage; enabled per model by mediad.<model>.env (r35gb).
+"$TC/arm-openwrt-linux-muslgnueabi-gcc" -O2 -Wall -fPIC -shared \
+    -o dist/unifi/lib/vin_crop_shim.so work/vin_crop_shim/vin_crop_shim.c -ldl
+"$STRIP" dist/unifi/lib/vin_crop_shim.so 2>/dev/null || true
 chmod 0755 dist/unifi/bin/mediad dist/unifi/script/mediad.sh dist/install-mediad.sh dist/unifi/lib/*.so
 
 echo "== dist/ ready:"
