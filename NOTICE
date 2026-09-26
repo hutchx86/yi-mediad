@@ -1,0 +1,120 @@
+yi-mediad
+==============
+
+`mediad` - a drop-in replacement for the stock `rmm` media daemon on Yi
+(Allwinner sun8iw19p1 / V833-class) IP cameras: capture -> ISP -> hardware H.264
+encode -> the `/dev/shm/fshare_frame_buf` ring + mic AAC, plus the picture-control
+surface.
+
+Copyright (C) 2026 yi-mediad contributors.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, version 3 of the License. See the LICENSE file for the full
+text. An additional permission under section 7 (linking the optional Allwinner
+vendor encoder libraries) is granted in LICENSE-EXCEPTION.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+
+Third-party components
+----------------------
+
+The *source* in this repository is AGPL-3.0-only (relicensed from GPL-3.0-only
+on 2026-09-26 by its sole copyright holder). The `package.sh` deploy build
+compiles **no** vendor source and includes no vendor header: the ISP 3A/register
+tier, the AAC encoder, the H.264 encoder, the VENC/ISP/capture middleware and the
+daemon's own interface headers are all our clean-room code (the AGPL-3.0-only
+`freewinner`/`freecodec` siblings); `libvenc_base.so` is built from that clean
+source too. The SDK tree is still fetched at build time, but no vendor object
+reaches the link — the table below is the audit trail for what it provides and
+why nothing of it ships. (Notices are the result of an audit of the actual
+archives, source headers and camera drivers - see the project's
+`implementation.md`.)
+
+Userspace - CLOSED (no license grant) — **audited and NOT compiled into the
+`package.sh` deploy build** (replaced by the clean-room tiers above):
+* **Allwinner eyesee-mpp middleware** - `mpi_sys.c`, `mpi_vi.c`, `mpi_isp.c`,
+  `mpi_venc.c`, `mpi_aenc.c`, the component / audio-HAL / vin glue and `libisp`
+  (`isp.c`, `isp_tuning`, `isp_manage`, `isp_dev`, ...) are compiled from source
+  supplied by the user's own Allwinner/Lindenis SDK tree
+  (`repos/lindenis-v833-softwinner`, not redistributed here). Their headers carry
+  `Copyright (C), 2001-2016/2018-2020, Allwinner Tech. Co., Ltd.` or
+  `Copyright (c) 2016 by Allwinnertech Co., Ltd.` with **no license grant**.
+  Replaced by our own `fcap_`/`fisp_`/`fenc_` packages and `mw_headers`; none of
+  these vendor objects is linked into the deploy build, and none of these vendor
+  headers is included by any translation unit in it. (The SDK `-I` roots remain
+  on the compile command line for the legacy MPP TUs in non-deploy targets; in
+  the deploy build they are unused.)
+  `Clock_Component.c` / `tmessage.c`, and our SDK's copies of the libcedarc
+  vencoder framework (`EncAdapter.c`, `FrameBufferManager.c`,
+  `BitstreamManager.c`), carry an explicit proprietary notice ("confidential and
+  proprietary ... only as expressly authorized by a licensing agreement from
+  Softwinner Products").
+  - Caveat on the vencoder framework: Allwinner has separately published the
+    same CedarX encoder framework - `vencoder.c`, `EncAdapter.c`,
+    `FrameBufferManager.c`, `BitstreamManager.c`, `venc_device.c` and
+    `include/video_enc_reg.h` - under **LGPL-2.1-or-later** at
+    github.com/allwinner-zh/media-codec (same author; our SDK copies are a later
+    refactor). That framework is thus plausibly LGPL. The encoder *engine* is
+    not: in that release too it is a closed binary plugin
+    (`libcedar_plugin_venc.so`, repo allwinner-zh/media-codec-lib, no license),
+    `dlopen`'d by `venc_device.c` and invoked via `CedarPluginVEncInit`. So the
+    framework has LGPL provenance; the H.264 encoder core remains a blob.
+* **Hardware H.264 encoder core** (`libvenc_codec.a/.so`, `libVE.a/.so`) - vendor
+  binaries from the same SDK. Audited: they contain **no copyright line and no
+  license text at all**. The `package.sh` deploy build links **none** of them: the
+  H.264 engine is the clean-room `freecodec` implementation (static objects) and
+  its framework is the clean-room `libvenc_base.so` built from
+  `codec/src/base`. `package.sh` therefore ships no vendor encoder library.
+  (The Makefile retains development targets that still use the vendor pair; they
+  are not the deliverable.)
+* **Prebuilt ISP 3A/tuning archives** (`libisp_ae/af/afs/awb/base/gtm/iso/md/
+  pltm/rolloff.a`, or `libisp_algo_rtos.a`) - **replaced** in the deploy build by
+  the AGPL-3.0-only clean-room `freewinner` tier (sibling checkout); no 3A archive
+  object is linked there (the RTOS archive is stripped to empty). Only the opt-out
+  vendor comparison build (e.g. `ALGO_RTOS=` on the make command line) links them.
+* **AAC**: the vendor `libaacenc.a` is **not** linked - replaced by our
+  `freecodec` encoder over upstream **FAAC** (LGPL-2.1-or-later) from the sibling
+  `freecodec-git` checkout. `libmp3enc.a` was never linked (mediad only selects
+  AAC; the two MP3 entry points are stubbed). The clean-room `freewinner`/
+  `freecodec` tiers are AGPL-3.0-only like this daemon, so the combined deploy
+  binary is AGPL-3.0-only.
+
+Kernel - OPEN (evidence: `.ko` modinfo on the camera):
+* `vin_v4l2.ko` and `vin_io.ko` - "Dual BSD/GPL" (Allwinner); `cam_sensor.ko`
+  - GPL; mainline `videobuf2-core/dma-contig/memops/v4l2.ko` - GPL. The camera's
+  V4L2 nodes are `vin_video0..3`, `vin_cap.0..3`, `sunxi_isp.0/.1`,
+  `sunxi_h3a.0/.1` (3A statistics), `sunxi_scaler`, `sunxi_csi`, `sunxi_mipi`.
+* The Allwinner V4L2 UAPI header compiled via libisp
+  (`include/V4l2Camera/linux/videodev2.h`) is GPL-2.0-or-later OR BSD-3-clause.
+* The video-engine kernel driver (`cedar_ve`, `/dev/cedar_dev`, major 150) is
+  built into the kernel image; its license was not extracted (mtd1 is
+  compressed). The userspace encoder core over it is closed regardless.
+
+Other:
+* **alsa-lib** - `work/media_daemon/include/alsa/*.h` (52 headers, tracked in
+  this repo) is a verbatim vendored subset of alsa-lib 1.1.4.1; those headers
+  carry LGPL-2.1-or-later. The camera's own `libasound.so.2` is linked at
+  runtime, not redistributed. Keep the LGPL notice with those headers.
+* **rmm fshare ring format** - reverse engineered from the camera's own stock
+  `rmm`; the stock binary is not redistributed.
+* **Terminus Font** (bold, 8x16 and 16x32) - the glyph bitmaps in the
+  generated `work/media_daemon/osd_font.h` are copied unmodified from Terminus
+  4.49.1, Copyright (C) 2020 Dimitar Toshkov Zhekov, SIL Open Font License 1.1
+  (Reserved Font Name "Terminus Font"). The licence is in
+  `work/media_daemon/fonts/OFL-Terminus.txt` and must ship with the source and
+  any distribution of the font data. (Replaces the earlier DejaVu Sans Mono
+  rendering.)
+* **iniparser** (`libisp/iniparser`) - ships no license file in this SDK tree;
+  upstream iniparser is MIT.
+
+
+Trademarks / disclaimer
+-----------------------
+
+This project is not affiliated with, endorsed by, or supported by Yi Technology
+or Kami. "Yi" and "Kami" are trademarks of their respective owners. Reverse
+engineering was performed for interoperability. Use at your own risk.

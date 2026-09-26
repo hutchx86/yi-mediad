@@ -1,0 +1,49 @@
+devices.md
+fw-download/
+fw_extract/
+fw_disassembly/
+*.bin
+*.img
+work/media_daemon/isp_cfg/
+work/media_daemon/build-isp521/
+work/media_daemon/mediad-isp521
+work/analysis/isp_tuning_images/
+__pycache__/
+
+# local agent settings (may contain pasted credentials)
+.claude/settings.local.json
+
+work/media_daemon/build/
+work/media_daemon/build-*/
+work/media_daemon/mediad
+work/media_daemon/mediad-isp521
+work/media_daemon/mediad_ctl
+work/media_daemon/rmm_extract
+# ALGO_RTOS / vendor experiment binaries. Match only executable products, NOT
+# source: mediad_audio.{c,h}/mediad_venc.{c,h} are tracked (the bare mediad_*
+# glob had hidden them).
+work/media_daemon/mediad_rtos_v
+work/media_daemon/mediad_rtos
+work/media_daemon/mediad_rtos_dbg
+work/media_daemon/mediad_vendor
+work/media_daemon/mediad_[0-9a-z]*.bak*
+work/media_daemon/mediad.*
+
+# device musl libasound (link-time only, not redistributable)
+work/media_daemon/prebuilt/
+*.key
+*.pem
+*.crt
+.env
+
+# dependency clones fetched by build.sh
+/repos/
+
+# assembled SD-card package (package.sh)
+/dist/
+
+# freewinner framework/media-utils A/B experiment binaries
+work/media_daemon/mediad_fw_*
+
+# y623 A/B experiment target binaries (make TARGET=mediad_y623_*)
+work/media_daemon/mediad_y623*

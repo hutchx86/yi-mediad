@@ -1,0 +1,10 @@
+--- a/eyesee-mpp/middleware/sun8iw19p1/media/LIBRARY/libisp/include/isp_manage.h
++++ b/eyesee-mpp/middleware/sun8iw19p1/media/LIBRARY/libisp/include/isp_manage.h
+@@ -472,0 +473,7 @@
++#ifdef ISP521_RTOS_ALGO
++	/* ALGO_RTOS build only: the Lindenis V833 Melis-built 521 algorithm
++	 * archive assumes a 64-byte pthread_mutex_t (RTOS ABI); musl's is 24.
++	 * Pad so every field after ctx_lock lands at the offset the algorithm
++	 * was compiled against (otherwise it reads/writes 40 bytes off). */
++	unsigned char _ctx_lock_pad[40];
++#endif
