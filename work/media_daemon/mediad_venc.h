@@ -24,11 +24,11 @@ struct mediad_venc_cfg {
     int rc_mode;              /* 0 CBR / 1 VBR / 2 AVBR (rmm: VBR) */
     int nr3d;                 /* encoder 3D-filter level 0-3 (rmm: 3) */
     int fastenc;
-    int chn;                  /* encoder channel index (VENC_IndexParamChannelNum) */
+    int chn;                  /* encoder channel index (FWM_VENC_PARAM_CHANNEL) */
 };
 
-/* One encoded frame. FreeOneBitStreamFrame needs the encoder's VencOutputBuffer
- * back verbatim (nID/flags identify the bitstream slot), so carry every field
+/* One encoded frame. FreeOneBitStreamFrame needs the encoder's fwm_venc_output_frame_t
+ * back verbatim (id/flags identify the bitstream slot), so carry every field
  * we might have to hand back - dropping them leaks bitstream slots until the
  * encoder's PutBits path fails (seen on r35gb 2026-09-19, ~21 min in). */
 struct mediad_venc_frame {
@@ -36,12 +36,12 @@ struct mediad_venc_frame {
     size_t len0;
     const unsigned char *addr1;
     size_t len1;
-    const unsigned char *addr2;   /* VencOutputBuffer.pData2 */
+    const unsigned char *addr2;   /* fwm_venc_output_frame_t.data2 */
     size_t len2;
-    unsigned int flag;            /* VencOutputBuffer.nFlag */
-    int id;                       /* VencOutputBuffer.nID */
+    unsigned int flag;            /* fwm_venc_output_frame_t.flags */
+    int id;                       /* fwm_venc_output_frame_t.id */
     uint64_t pts;                 /* microseconds */
-    /* FrameInfo passthrough */
+    /* fwm_venc_frame_stats_t passthrough */
     int curr_qp, av_qp, gop_index, frame_index, total_index;
 };
 
@@ -53,7 +53,7 @@ void mediad_venc_close(struct mediad_venc *v);
 int mediad_venc_spspps(struct mediad_venc *v, unsigned char *out, size_t out_cap);
 
 /* One captured luma buffer (VIRTUAL address + stride) -> one encoded frame.
- * Fills the VencInputBuffer from cov[] and runs the encoder clock. */
+ * Fills the fwm_venc_input_picture_t from cov[] and runs the encoder clock. */
 struct cov1 {
     void *virY;
     void *virC;
@@ -96,7 +96,7 @@ struct mediad_venc_ovl_blk {
 };
 
 /* Push the whole overlay set to the encoder; n == 0 clears it. Maps to
- * libcedarc VideoEncSetParameter(VENC_IndexParamSetOverlay) - the same call the
+ * libcedarc VideoEncSetParameter(FWM_VENC_PARAM_OVERLAY) - the same call the
  * vendor middleware makes (VideoEnc_Component.c:3197). Returns 0 on success. */
 int mediad_venc_set_overlay(struct mediad_venc *v,
                             const struct mediad_venc_ovl_blk *blks, int n);

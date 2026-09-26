@@ -367,7 +367,7 @@ static void load_shim_tables(void)
 
 /* Runtime encoder bitrate, from Protect's ChangeVideoSettings (forwarded by
  * goclient via mediad_ctl). Applied with our own VideoEncSetParameter
- * (VENC_IndexParamBitrate). The value is persisted so a mediad restart cannot
+ * (FWM_VENC_PARAM_BITRATE). The value is persisted so a mediad restart cannot
  * silently drop it back to the 1.5 Mbps compile-time default: the controller
  * only re-sends it on connect / settings change, so the first restart after a
  * deploy used to halve the stream (visible compression artifacts, r35gb

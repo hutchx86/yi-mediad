@@ -20,31 +20,31 @@ The libcedarc vencoder API is a public interface (declared in the SDK's
 `vencoder.h`). We are allowed to call it; this section records which calls the
 channel makes and the contract each must satisfy.
 
-- `VideoEncCreate(VENC_CODEC_H264)` -> opaque `VideoEncoder*`, or NULL.
-- `VideoEncSetParameter(h, VENC_IndexParam*, &val)` -> 0 on success.
-- `VideoEncGetParameter(h, VENC_IndexParamH264SPSPPS, &VencHeaderData)` -> 0 on
-  success; `VencHeaderData{nLength, pBuffer}` holds the SPS+PPS access units
+- `VideoEncCreate(FWM_VENC_CODEC_H264)` -> opaque `fwm_venc_handle_t*`, or NULL.
+- `VideoEncSetParameter(h, FWM_VENC_PARAM_*, &val)` -> 0 on success.
+- `VideoEncGetParameter(h, FWM_VENC_PARAM_H264_SPS_PPS, &fwm_venc_header_blob_t)` -> 0 on
+  success; `fwm_venc_header_blob_t{length, data}` holds the SPS+PPS access units
   (Annex-B, `00 00 00 01` prefixed), valid to read but owned by the encoder.
-- `VideoEncInit(h, &VencBaseConfig)` -> 0 on success. Config carries the input
+- `VideoEncInit(h, &fwm_venc_base_config_t)` -> 0 on success. Config carries the input
   (capture) size, input stride, output (coded) size, and the input pixel format.
-- `AllocInputBuffer(h, &VencAllocateBufferParam{nBufferNum,nSizeY,nSizeC})` -> 0
-  on success. `nSizeY`/`nSizeC` are plane byte sizes **in the encoder's own
+- `AllocInputBuffer(h, &fwm_venc_input_pool_t{count,luma_size,chroma_size})` -> 0
+  on success. `luma_size`/`chroma_size` are plane byte sizes **in the encoder's own
   addressing units** (the API expresses them in the same units the rest of the
   API uses; see Open questions).
-- `GetOneAllocInputBuffer(h, &VencInputBuffer)` -> 0 and fills a buffer whose
+- `GetOneAllocInputBuffer(h, &fwm_venc_input_picture_t)` -> 0 and fills a buffer whose
   virtual Y/C addresses we may write.
-- `ReturnOneAllocInputBuffer(h, &VencInputBuffer)` -> returns it to the pool.
-- `AddOneInputBuffer(h, &VencInputBuffer)` -> queues a frame for encoding.
+- `ReturnOneAllocInputBuffer(h, &fwm_venc_input_picture_t)` -> returns it to the pool.
+- `AddOneInputBuffer(h, &fwm_venc_input_picture_t)` -> queues a frame for encoding.
 - `VideoEncodeOneFrame(h)` -> 0 on success (a frame was consumed and encoded).
-- `AlreadyUsedInputBuffer(h, &VencInputBuffer)` -> 0 once the encoder is done
+- `AlreadyUsedInputBuffer(h, &fwm_venc_input_picture_t)` -> 0 once the encoder is done
   reading that input buffer.
 - `ValidBitstreamFrameNum(h)` -> count of complete bitstream frames ready.
-- `GetOneBitstreamFrame(h, &VencOutputBuffer)` -> 0 on success; `pData0/nSize0`
-  and `pData1/nSize1` are two byte ranges making up one frame.
-- `FreeOneBitStreamFrame(h, &VencOutputBuffer)` -> releases it.
+- `GetOneBitstreamFrame(h, &fwm_venc_output_frame_t)` -> 0 on success; `data0/size0`
+  and `data1/size1` are two byte ranges making up one frame.
+- `FreeOneBitStreamFrame(h, &fwm_venc_output_frame_t)` -> releases it.
 - `VideoEncDestroy(h)`.
 
-`VencBaseConfig` needs the encoder's memory/VE ops: they are filled by
+`fwm_venc_base_config_t` needs the encoder's memory/VE ops: they are filled by
 `VideoEncCreate`/`VideoEncInit` themselves (the framework obtains them from the
 cedarc glue), so the caller supplies geometry, format, and flags only.
 
@@ -62,11 +62,11 @@ env-overridable in `main.c`:
 | profile | 2 (High) | 0 baseline / 1 main / 2 high |
 | level | 32 (3.2) | matches coded size ≤ 2304×1296 |
 | QP range | min 10, max 40 | rate-control floor/ceiling |
-| RC mode | VBR (AW_VBR) | 0 CBR / 1 VBR / 2 AVBR |
+| RC mode | VBR (FWM_VENC_RC_VBR) | 0 CBR / 1 VBR / 2 AVBR |
 | encoder 3DNR | 0 (off) | 0-3; rmm's level 3 smears motion |
 | coding mode | frame | one frame per `VideoEncodeOneFrame` |
 | GOP mode | normal P | one reference picture, periodic IDR |
-| input format | Allwinner LBC 2.5X (`VENC_PIXEL_LBC_AW`) | matches the VI capture format |
+| input format | Allwinner LBC 2.5X (`FWM_VENC_PIXEL_LBC`) | matches the VI capture format |
 
 ## Behaviour
 
@@ -106,11 +106,11 @@ buffers it allocated).
 
 ## Resolved questions (against the SDK, not the vendor middleware)
 
-1. **`VencAllocateBufferParam` units.** Not used: the channel feeds the encoder
+1. **`fwm_venc_input_pool_t` units.** Not used: the channel feeds the encoder
    the captured frame's own physical addresses via `AddOneInputBuffer`
    (zero-copy), so no encoder-side input pool or `AllocInputBuffer` is needed.
 2. **Input presentation.** The encoder consumes the captured buffer's physical
-   address (`VencInputBuffer.pAddrPhyY/pAddrPhyC`); the VI frame already carries
+   address (`fwm_venc_input_picture_t.luma_phys/chroma_phys`); the VI frame already carries
    it, so no mapping step is required.
 
 ## Provenance

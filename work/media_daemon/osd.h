@@ -9,7 +9,7 @@
  * middleware AW_MPI_RGN_* region API has no chn[8] to attach to. Instead the
  * elements are rendered into ARGB1555 buffers here and pushed to our own
  * encoder with mediad_venc_set_overlay(), which is the same
- * VENC_IndexParamSetOverlay call the vendor middleware ultimately makes. Text is
+ * FWM_VENC_PARAM_OVERLAY call the vendor middleware ultimately makes. Text is
  * rendered from an embedded 8x16 ASCII font; the logo is a placeholder bitmap.
  */
 #ifndef MEDIAD_OSD_H

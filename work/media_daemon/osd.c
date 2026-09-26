@@ -8,8 +8,8 @@
  * middleware VENC channel, so the middleware AW_MPI_RGN_* region API has no
  * chn[8] to attach to. The vendor's own OSD path does not go through that
  * region API either: mpi_venc.c's configVencOsd() (media/mpi_venc.c:2998) packs
- * its regions into a VencOverlayInfoS and hands it to the encoder with
- * VideoEncSetParameter(VENC_IndexParamSetOverlay) (VideoEnc_Component.c:3197).
+ * its regions into a fwm_venc_overlay_t and hands it to the encoder with
+ * VideoEncSetParameter(FWM_VENC_PARAM_OVERLAY) (VideoEnc_Component.c:3197).
  * That index is implemented by libvenc_codec.so - the same encoder mediad links
  * - so we render each element into an ARGB1555 buffer here and push the whole
  * set with mediad_venc_set_overlay().
@@ -41,7 +41,7 @@ extern fwi_isp_ctx_t isp_ctx[];
 
 #define OSD_MAX_CH 4
 #define OSD_NEL 3
-#define OSD_MAX_BLK 64   /* encoder overlay block limit (MAX_OVERLAY_SIZE) */
+#define OSD_MAX_BLK 64   /* encoder overlay block limit (FWM_VENC_OVERLAY_MAX_REGIONS) */
 #define OSD_MAXCOL  64   /* 16-px columns per element (INFO is 52 wide) */
 /* Letter colour hysteresis on background luma (0..255): switch to the
  * complement colour above HI, back below LO, after DWELL consecutive samples

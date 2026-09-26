@@ -538,7 +538,7 @@ OBJS := $(patsubst %.c,$(BUILD)/%.o,$(notdir $(ALL_C_SRC))) \
 #
 # Everything else keeps the normal 4-byte-enum ABI, because it shares structs
 # with the *prebuilt* VENC codec/cedarc: compiling the whole tree short made
-# VencH264Param 188 instead of 200 bytes, so the codec read nCodingMode at 0x24
+# fwm_venc_h264_config_t 188 instead of 200 bytes, so the codec read coding_mode at 0x24
 # as 0x101 -> "do not support the picEncmode:257" -> every frame rejected.
 # isp_dev.c/video.c/media.c/events.c are deliberately NOT short: they share
 # struct video_fmt / hw_isp_device with the 4-byte VI glue and never touch
