@@ -83,8 +83,9 @@ int mediad_venc_reset(struct mediad_venc *v);
 /* Runtime bitrate change (Protect ChangeVideoSettings); returns 0 on success. */
 int mediad_venc_set_bitrate(struct mediad_venc *v, int bps);
 
-/* Runtime encoder 3D-filter level, 0 off .. 3 (rmm: 3); returns 0 on success. */
-int mediad_venc_set_filter3d(struct mediad_venc *v, int level);
+/* Runtime encoder 3D-filter strength: the hardware threshold directly,
+ * 0 off .. 511 (the vendor levels 1..3 equal about 1..6); 0 on success. */
+int mediad_venc_set_filter3d(struct mediad_venc *v, int strength);
 
 /* One burned-in OSD block for the encoder's overlay engine. Position is in
  * 16x16 macroblock units relative to the encoded frame; bits points at an

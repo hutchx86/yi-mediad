@@ -393,13 +393,15 @@ int mediad_venc_set_bitrate(struct mediad_venc *v, int bps)
     return VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE, &bps) == 0 ? 0 : -1;
 }
 
-int mediad_venc_set_filter3d(struct mediad_venc *v, int level)
+int mediad_venc_set_filter3d(struct mediad_venc *v, int strength)
 {
-    unsigned char lvl = (unsigned char)(level < 0 ? 0 : level > 3 ? 3 : level);
+    int s = strength < 0 ? 0 : strength > 511 ? 511 : strength;
 
     if (v == NULL || v->enc == NULL)
         return -1;
-    return VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FILTER_3D, &lvl) == 0 ? 0 : -1;
+    /* The full 9-bit hardware threshold (freecodec extension); the vendor
+     * levels 1..3 only reach T = 1..6, which is barely visible. */
+    return VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FILTER_3D_STRENGTH, &s) == 0 ? 0 : -1;
 }
 
 /*

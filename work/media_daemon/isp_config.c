@@ -36,10 +36,12 @@ static int g_hue = 50;
 static int g_sharpness = 5;
 static int g_brightness = 50;
 static int g_contrast = 50;
-static int g_denoise = 0;   /* 0 = denoise/3DNR off (stock ghosts on motion) */
-static int g_tdf_want = 0;  /* configured tdf (see isp_config_want_tdf) */
-static int g_nr2d_want = 1; /* spatial (2D) denoise; 1 == the tuning's own */
-static int g_cnr_want = 1;  /* chroma denoise; 1 == the tuning's own */
+/* Denoise defaults (owner decision 2026-09-27): spatial on, chroma off,
+ * temporal on, strength 100 (encoder 3D filter off, main.c). */
+static int g_denoise = 100; /* strength ramp 0..100; 0 = the tuning's own */
+static int g_tdf_want = 1;  /* temporal (3DNR); see isp_config_want_tdf */
+static int g_nr2d_want = 1; /* spatial (2D) denoise */
+static int g_cnr_want = 0;  /* chroma denoise */
 static int g_exposure = 50;
 static int g_gamma = 50;   /* 0 = darkest, 50 = neutral (exp 0.85), 100 = light */
 
@@ -297,13 +299,14 @@ void isp_config_fill_param(fwi_tuning_image_t *param)
     test->sharpen_en = cal_on("sharp", 1);
     test->lens_shading_en = cal_on("lsc", 0);
     test->global_tone_en = cal_on("gtm", 1);
-    test->chroma_denoise_en = cal_on("cnr", 1);
-    /* 3DNR (tdf) and temporal denoise default OFF: stock's temporal denoise
-     * leaves a ghosting "arm shadow" on motion. Both are overridable
-     * (MEDIAD_CONF tdf=/denoise= or Protect enable3dnr). */
-    test->denoise_3d_en = cal_on("tdf", 0);
+    /* Denoise defaults match the switch defaults above (spatial on, chroma
+     * off, temporal on); mediad.conf / the web page / Protect override. */
+    test->chroma_denoise_en = cal_on("cnr", 0);
+    g_cnr_want = test->chroma_denoise_en;
+    test->denoise_3d_en = cal_on("tdf", 1);
     g_tdf_want = test->denoise_3d_en;
-    test->denoise_2d_en = cal_on("denoise", 0);
+    test->denoise_2d_en = cal_on("denoise", 1);
+    g_nr2d_want = test->denoise_2d_en;
     test->drc_en = cal_on("drc", 0);
     test->colour_enhance_en = cal_on("cem", 0);
     test->local_tone_en = cal_on("pltm", 0);

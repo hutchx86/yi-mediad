@@ -385,24 +385,26 @@ static struct ctl g_controls[] = {
     { "saturation", ISP_CTL_SATURATION,  0,   100, 50,  set_saturation, get_saturation_cfg },
     { "hue",        0,                  0,   100, 50,  set_hue_cfg,    get_hue_cfg },
     { "sharpness",  ISP_CTL_SHARPNESS,  0,   10,  5,   set_sharpness,  get_sharpness_cfg },
-    /* Denoise defaults OFF (0): stock's temporal denoise ghosts on motion. On
-     * the 0..100 scale 0 disables it; >0 applies the register ramp. */
-    { "denoise",    ISP_CTL_NR,         0,   100, 0,   set_denoise_cfg, get_denoise_cfg },
+    /* Denoise strength ramp, 0..100 (0 = the tuning's own thresholds).
+     * Default 100 (owner decision 2026-09-27); which modules run is up to
+     * the tdf/nr2d/cnr switches below. */
+    { "denoise",    ISP_CTL_NR,         0,   100, 100, set_denoise_cfg, get_denoise_cfg },
     { "exposure",   0,                  0,   100, 50,  set_exposure_cfg, get_exposure_cfg, 1 },
     { "aebias",     0,                  0,   8,   4,   set_aebias,     get_aebias,       1 },
     /* Gamma uses the camera's own imported curve by default (v=50 == stock);
      * locked from the socket so Protect can't replace it. The web UI (which
      * bypasses the lock) can still tune it for advanced users. */
     { "gamma",      0,                  0,   100, 50,  set_gamma_cfg,  get_gamma_cfg, 1 },
-    /* 3DNR module on/off (Protect enable3dnr). Default OFF (0): stock's 3DNR
-     * leaves a ghosting "arm shadow" on motion. Overridable (config/Protect). */
-    { "tdf",        ISP_CTL_3DNR,       0,   1,   0,   set_tdf_cfg,    get_tdf_cfg },
-    /* The other denoisers, each switchable on its own: ISP spatial (2D) and
-     * chroma denoise (default on, the tuning's own strength), and the
-     * encoder's 3D filter (0 off .. 3; rmm runs 3, which smears motion). */
+    /* 3DNR module on/off (Protect enable3dnr). Default ON (owner decision
+     * 2026-09-27; it can leave a faint ghost behind motion in low light). */
+    { "tdf",        ISP_CTL_3DNR,       0,   1,   1,   set_tdf_cfg,    get_tdf_cfg },
+    /* The other denoisers, each switchable on its own: ISP spatial (2D,
+     * default on) and chroma denoise (default off), and the encoder's 3D
+     * filter strength (the 9-bit hardware threshold, 0 off .. 511, default
+     * off; the vendor levels 1..3 are about 1..6). */
     { "nr2d",       0,                  0,   1,   1,   set_nr2d_cfg,   get_nr2d_cfg },
-    { "cnr",        0,                  0,   1,   1,   set_cnr_cfg,    get_cnr_cfg },
-    { "venc3d",     0,                  0,   3,   0,   set_venc3d,     get_venc3d },
+    { "cnr",        0,                  0,   1,   0,   set_cnr_cfg,    get_cnr_cfg },
+    { "venc3d",     0,                  0,   511, 0,   set_venc3d,     get_venc3d },
     /* Protect drives HDR plus bitrate (ChangeIspSettings.wdr /
      * ChangeVideoSettings bitRateCbrAvg|VbrMax). `wdr` (PLTM strength) is
      * RE-LOCKED 2026-09-14: with the sister client still mapping Protect's

@@ -436,15 +436,16 @@ int mediad_set_bitrate(const char *name, unsigned int bps)
     return -1;
 }
 
-/* Encoder 3D-filter level (0 off .. 3), applied to every channel. Starts at
- * MEDIAD_3DNR (default 0); mediad.conf / the socket change it live. */
+/* Encoder 3D-filter strength (0 off .. 511, the hardware threshold), applied
+ * to every channel; mediad.conf / the socket change it live. MEDIAD_3DNR still
+ * sets the vendor level (0..3) at init. */
 static int g_venc3d;
 
 int mediad_set_venc3d(int level)
 {
     int i, rc = 0;
 
-    level = level < 0 ? 0 : level > 3 ? 3 : level;
+    level = level < 0 ? 0 : level > 511 ? 511 : level;
     for (i = 0; i < NCHAN; i++)
         if (g_chans[i].venc && mediad_venc_set_filter3d(g_chans[i].venc, level) != 0)
             rc = -1;
@@ -981,7 +982,6 @@ static int venc_start(media_chan *ch)
         if ((e = getenv(strcmp(ch->name, "high") == 0 ? "MEDIAD_GOP_HIGH" : "MEDIAD_GOP_LOW")))
             cfg.gop = atoi(e);
         if ((e = getenv("MEDIAD_3DNR"))) cfg.nr3d = atoi(e);
-        g_venc3d = cfg.nr3d < 0 ? 0 : cfg.nr3d > 3 ? 3 : cfg.nr3d;
         if (strcmp(ch->name, "high") == 0) {
             if ((e = getenv("MEDIAD_CROP_X"))) cfg.crop_x = atoi(e);
             if ((e = getenv("MEDIAD_CROP_Y"))) cfg.crop_y = atoi(e);
