@@ -47,9 +47,14 @@ SRC_HASH=$(git -C "$REPO" ls-files -z -- $STAMP_INPUTS 2>/dev/null \
 STAMP="src-$SRC_HASH"
 
 echo "== building mediad (clean build: ALGO_RTOS=1 FREECODEC_H264=1 FENC/FISP/FCAP/HEADERS=1; rev $REV stamp $STAMP)"
-make -C work/media_daemon BUILD=build-rtos-v TARGET=mediad_rtos_v ALGO_RTOS=1 \
+# -W main.c: the stamp is a -D flag, which make's dependency tracking cannot
+# see, so recompile main.c (the only user) every time; otherwise an old stamp
+# survives and dist/'s binary and SOURCE.txt disagree.
+make -C work/media_daemon -W main.c BUILD=build-rtos-v TARGET=mediad_rtos_v ALGO_RTOS=1 \
     FREECODEC_H264=1 FREECODEC_FENC=1 FREECODEC_FISP=1 FREECODEC_FCAP=1 FREECODEC_HEADERS=1 \
     EXTRA_CFLAGS="-DMEDIAD_BUILD_STAMP='\"$STAMP\"'"
+grep -q "$STAMP" work/media_daemon/mediad_rtos_v || \
+    { echo "ERROR: built mediad does not carry stamp $STAMP"; exit 1; }
 
 echo "== assembling dist/"
 rm -rf dist

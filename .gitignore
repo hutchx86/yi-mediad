@@ -19,15 +19,16 @@ work/media_daemon/mediad
 work/media_daemon/mediad-isp521
 work/media_daemon/mediad_ctl
 work/media_daemon/rmm_extract
-# ALGO_RTOS / vendor experiment binaries. Match only executable products, NOT
-# source: mediad_audio.{c,h}/mediad_venc.{c,h} are tracked (the bare mediad_*
-# glob had hidden them).
-work/media_daemon/mediad_rtos_v
-work/media_daemon/mediad_rtos
-work/media_daemon/mediad_rtos_dbg
-work/media_daemon/mediad_vendor
-work/media_daemon/mediad_[0-9a-z]*.bak*
+# Every mediad_* build product (ALGO_RTOS, vendor-linked and A/B experiment
+# binaries, whatever they are called), re-including source: the tracked
+# mediad_audio.{c,h} / mediad_venc.{c,h} must stay visible.
+work/media_daemon/mediad_*
+!work/media_daemon/mediad_*.c
+!work/media_daemon/mediad_*.h
 work/media_daemon/mediad.*
+
+# Side-by-side vendor-encoder build tree (links the vendor libraries).
+work/media_daemon-vendor-venc/
 
 # device musl libasound (link-time only, not redistributable)
 work/media_daemon/prebuilt/
