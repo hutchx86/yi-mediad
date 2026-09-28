@@ -441,7 +441,8 @@ CLEAN_SHIM_SRC := \
     $(SHIM_DIR)/pltm/pltm_shim.c
 CLEAN_INTEG_SRC := \
     $(INTEG_DIR)/freeisp_shim_tables.c \
-    $(FW_GIT)/src/tables/rmm_tables.c
+    $(FW_GIT)/src/tables/rmm_tables.c \
+    $(FW_GIT)/src/tables/pltm_presets.c
 # Register/hardware tier (A8/A9): reg_writers.c (the bsp_isp_*/bspp_isp_*
 # writers) and module_cfg.c (the clean dispatch), presented to the framework
 # through the SDK-ABI adapter shim/module_cfg/module_cfg_shim.c, which

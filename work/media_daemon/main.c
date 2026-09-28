@@ -361,7 +361,8 @@ static void load_shim_tables(void)
         fprintf(stderr, "mediad: clean-shim tables unavailable (bundle/rmm %s); "
                         "using shim defaults\n", rmm);
     else
-        fprintf(stderr, "mediad: clean-shim tables installed (cache-first)\n");
+        fprintf(stderr, "mediad: clean-shim tables installed (cache-first); "
+                        "pltm presets: %s\n", freeisp_shim_pltm_presets_status());
 }
 #endif
 
