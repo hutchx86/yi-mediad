@@ -1,17 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * osd.h - burned-in OSD overlay (date / camera name / logo / bitrate).
- *
- * The camera draws Protect's OSD itself (Protect sends ChangeOsdSettings; the
- * sister's goclient forwards the fields). mediad owns the encoder through
- * libcedarc (mediad_venc.c) and never creates a middleware VENC channel, so the
- * middleware AW_MPI_RGN_* region API has no chn[8] to attach to. Instead the
- * elements are rendered into ARGB1555 buffers here and pushed to our own
- * encoder with mediad_venc_set_overlay(), which is the same
- * FWM_VENC_PARAM_OVERLAY call the vendor middleware ultimately makes. Text is
- * rendered from an embedded 8x16 ASCII font; the logo is a placeholder bitmap.
- */
+/* osd.h - burned-in OSD (date / camera name / logo / bitrate) for Protect's
+ * ChangeOsdSettings: ARGB1555 blocks rendered here and handed to the encoder's
+ * overlay engine via mediad_venc_set_overlay(). */
 #ifndef MEDIAD_OSD_H
 #define MEDIAD_OSD_H
 

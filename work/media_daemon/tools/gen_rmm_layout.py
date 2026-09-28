@@ -1,21 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
+
+# Emit rmm_layout.h: the byte-copy list that remaps stock-521 isp_param_config
+# sections to our layout in the build's enum ABI (--abi short|long). No vendor
+# bytes or addresses; layout from isp_layout_521.py.
 """
-gen_rmm_layout.py - emit the stock-521 -> V833 struct remap used by rmm_tuning.c.
-
-There is no per-firmware data here: the only thing compiled in is the byte-copy
-tuple list that translates stock rmm's isp_param_config sections into our V833
-tree's layout, in the enum ABI of the build. rmm_tuning.c finds the sections
-itself at runtime by scanning the camera's own /home/app/rmm for the sensor
-name and following its config pointers - no addresses are hardcoded.
-
-  --abi short|long  select the target enum ABI (ALGO_RTOS=1 uses -fshort-enums)
-  -o <header>       write the C header
-
-The section sizes/layout come from extract_isp_cfg (isp_layout_521), the
-single source for the recovered 521 layout; no vendor bytes are involved.
-"""
+gen_rmm_layout.py - emit the stock-521 -> V833 struct remap used by rmm_tuning.c."""
 import argparse
 import os
 import sys

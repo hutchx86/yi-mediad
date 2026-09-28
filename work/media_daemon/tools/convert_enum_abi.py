@@ -1,27 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
-"""
-convert_enum_abi.py - convert a native-521 `struct isp_param_config` blob from
-the 4-byte-enum ABI (133116 B, as rmm and the V833 libisp-dev tree are built)
-to the Melis RTOS short-enum ABI (133068 B) used by the Lindenis V833
-RTOS-Melis `libisp_algo.a` (see other.md, "A same-SoC isp521-ipc algorithm
-archive exists").
 
-Only `isp_dynamic_param` differs between the two ABIs: its leading
-`isp_dynamic_triger_t` is 17 enums, which are 4 bytes each normally but 1 byte
-with `-fshort-enums` (17 -> 20 with alignment). Everything before it
-(test/3a/tunning, 124648 B) and every field after the triger is byte-identical
-(verified field-by-field; see the offsets below).
-
-  dynamic (4-byte): triger 0..68 | lum[14] 68..124 | gain[14] 124..180 | cfg[14] 180..8468
-  dynamic (1-byte): triger 0..17 | pad 17..20  | lum[14] 20..76  | gain[14] 76..132 | cfg[14] 132..8420
-
-Usage:
-  convert_enum_abi.py <day.bin> <night.bin> <out_c>
-Writes <day>_short.bin / <night>_short.bin next to the inputs and the
-gc3003_cfg_521_short.c wrapper embedding them.
-"""
+# Convert a native-521 isp_param_config blob from the 4-byte-enum ABI (133116 B)
+# to the Melis RTOS short-enum ABI (133068 B). Only isp_dynamic_param differs:
+# its 17-enum trigger shrinks from 68 to 20 bytes; everything else is identical.
+"""Usage: convert_enum_abi.py <day.bin> <night.bin> <out_c> (writes *_short.bin and the
+gc3003_cfg_521_short.c wrapper embedding them."""
 import os
 import sys
 

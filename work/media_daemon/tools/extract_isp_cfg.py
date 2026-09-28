@@ -1,36 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
+
+# Host-side extractor: read the ISP tuning (cfg_arr + isp_cfg_pt) out of your own
+# rmm binary and write one blob per entry, in the 2019 (520) or native 521 layout
+# (--layout); --emit-c writes a C wrapper. Output is vendor data: never commit it.
 """
-extract_isp_cfg.py - build-time extractor for a sensor's ISP tuning config that
-is compiled into the stock `rmm` binary, remapped to the *open* libisp (2019,
-`isp-500-520-v2.00`) struct layout.
-
-Why: `mediad` needs the per-sensor ISP tuning tables that stock `rmm` ships, but
-the open Allwinner tree only has imx parts and we must NOT redistribute the
-vendor calibration. So this reads the user's OWN `rmm.bin`, locates the
-compiled-in `cfg_arr[]` + `isp_cfg_pt` configs, and emits raw blobs in the open
-tree's `struct isp_param_config` layout, for embedding at build time. Nothing
-generated is committed.
-
-Layout: rmm's libisp is the 2021 `isp521-ipc` branch (commit feb055b7). Its
-`isp_test_param` / `isp_3a_param` / `isp_tunning_param` / `isp_dynamic_param`
-layouts differ from the 2019 tree by inserted fields (MSC/GCA/LCA tables, extra
-AE scalars, an extra dynamic-AE enum, ...). The exact 521 offsets are in
-`isp_layout_521.py`, computed from the public `isp522` branch headers
-(github.com/vamrs-feng/allwinner-isp6xx) with ISP_VERSION=521 - the recovered
-`gamma_trig_cfg` offset (84496) matches the offset observed in rmm's own
-tuning data, which validates the layout. We remap field-by-field:
-every 520 field is copied from its 521 counterpart (min(size_520, size_521));
-520-only fields are left zero.
-
-Usage:
-  extract_isp_cfg.py <rmm.bin> <out_prefix> [sensor] [width] [height] [fps]
-                     [--layout 520|521] [--emit-c gc3003_cfg.c]
-Writes <out_prefix>_<cfgname>.bin per cfg_arr entry (96944 bytes in the 2019
-layout, or 133128 bytes native 521 with --layout 521). --emit-c additionally
-writes a gc3003_cfg.c wrapper embedding the day/night blobs for the build.
-"""
+extract_isp_cfg.py - build-time extractor for a sensor's ISP tuning config that"""
 import os
 import struct
 import sys
@@ -124,18 +100,8 @@ def map_config(d, segs, cfg_ptr):
     return out
 
 
-# The Lindenis V833 tree this project actually builds against has a slightly
-# different `isp_tunning_param` than stock rmm (and the public isp522 branch):
-# the `isp_gca_cfg` enum gains two leading entries in isp522
-# (`ISP_GCA_CT_W`/`ISP_GCA_CT_H`), so stock's gca_cfg[] is 36 B (ISP_GCA_MAX=9)
-# vs our 28 B (ISP_GCA_MAX=7). Every field from gca_cfg to the end therefore
-# sits 8 bytes later in the stock blob. The prefix up to cm_trig_cfg is
-# byte-identical. We map the 7 shared gca_cfg values (dropping the two
-# stock-only entries) and copy lca/pltm/... down by 8. Offsets are offsetof()
-# values from the V833 headers. Without this, pltm_cfg[] is read shifted: the
-# vendor isp_test_param.pltm_en=1 then feeds the 2020 PLTM algorithm a
-# BLOCK_V_NUM of 0, so block_len becomes 1296 and merge_tbl_gen overruns a
-# 1024-entry stack buffer -> canary smash -> SIGILL.
+# Stock gca_cfg[] has two extra leading entries (36 B vs our 28 B), so every
+# later isp_tunning_param field sits 8 bytes further on in the stock blob.
 V833_TUNNING_GCA_OFF = 87144     # start of gca_cfg (both layouts)
 V833_TUNNING_GCA_SIZE = 28       # our ISP_GCA_MAX(7)*4
 STOCK_TUNNING_GCA_SIZE = 36      # stock ISP_GCA_MAX(9)*4 (CT_W/CT_H prepended)
@@ -152,10 +118,8 @@ def fix_tunning_v833(t):
     out[g0:g0 + V833_TUNNING_GCA_SIZE] = \
         t[g0 + STOCK_TUNNING_GCA_SIZE - V833_TUNNING_GCA_SIZE:
           g0 + STOCK_TUNNING_GCA_SIZE]
-    # lca/pltm/... follow contiguously at the same relative sizes, so stock's
-    # bytes from the end of its (larger) gca_cfg map straight down by 8. Keep
-    # the output length fixed (our struct is 8 B shorter at the tail: the last
-    # 8 bytes of our larger isp_wdr_table stay zero).
+    # The rest moves down by 8; the output length stays fixed (the last 8 bytes
+    # stay zero).
     tail = t[g0 + STOCK_TUNNING_GCA_SIZE:]
     d0 = g0 + V833_TUNNING_GCA_SIZE
     out[d0:d0 + len(tail)] = tail
@@ -163,14 +127,8 @@ def fix_tunning_v833(t):
 
 
 def map_config_native(d, segs, cfg_ptr):
-    """Return the 521 `struct isp_param_config` blob (133116 bytes) in the
-    V833 tree's layout.
-
-    For the native-V833 builds (default + ALGO_RTOS), whose headers define the
-    struct. test/3a/dynamic match rmm/isp522 byte-for-byte; isp_tunning_param
-    needs an 8-byte realignment (see fix_tunning_v833), so no fields are lost
-    (LSC/gamma/PLTM/dynamic all transfer correctly).
-    """
+    """Return the 521 isp_param_config blob (133116 bytes) in the V833 layout;
+    only isp_tunning_param needs realigning (fix_tunning_v833)."""
     total = (SIZES_521['isp_test_param'] + SIZES_521['isp_3a_param']
              + SIZES_521['isp_tunning_param'] + SIZES_521['isp_dynamic_param'])
     fo = v2o(segs, cfg_ptr)

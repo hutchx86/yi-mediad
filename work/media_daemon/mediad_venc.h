@@ -28,10 +28,8 @@ struct mediad_venc_cfg {
     int chn;                  /* encoder channel index (FWM_VENC_PARAM_CHANNEL) */
 };
 
-/* One encoded frame. FreeOneBitStreamFrame needs the encoder's fwm_venc_output_frame_t
- * back verbatim (id/flags identify the bitstream slot), so carry every field
- * we might have to hand back - dropping them leaks bitstream slots until the
- * encoder's PutBits path fails (seen on r35gb 2026-09-19, ~21 min in). */
+/* One encoded frame. FreeOneBitStreamFrame needs fwm_venc_output_frame_t back
+ * verbatim (id/flags name the slot); losing fields leaks bitstream slots. */
 struct mediad_venc_frame {
     const unsigned char *addr0;
     size_t len0;
@@ -65,9 +63,8 @@ struct cov1 {
 int mediad_venc_encode(struct mediad_venc *v, const struct cov1 *cov,
                        struct mediad_venc_frame *out);
 
-/* The encoder can queue more than one bitstream unit per input; drain the rest
- * with these so no slot is left occupied. mediad_venc_ready() > 0 means a call
- * to mediad_venc_next() will produce a frame. */
+/* Drain further bitstream units queued for one input so no slot stays
+ * occupied; mediad_venc_ready() > 0 means mediad_venc_next() has a frame. */
 int mediad_venc_ready(struct mediad_venc *v);
 int mediad_venc_next(struct mediad_venc *v, struct mediad_venc_frame *out);
 
@@ -87,11 +84,8 @@ int mediad_venc_set_bitrate(struct mediad_venc *v, int bps);
  * 0 off .. 511 (the vendor levels 1..3 equal about 1..6); 0 on success. */
 int mediad_venc_set_filter3d(struct mediad_venc *v, int strength);
 
-/* One burned-in OSD block for the encoder's overlay engine. Position is in
- * 16x16 macroblock units relative to the encoded frame; bits points at an
- * ARGB1555 bitmap (bit15 = per-pixel alpha, 1 = opaque) whose dimensions are
- * 16-aligned so [start..end] covers exactly bits' w*h pixels. The encoder
- * copies the bitmap during the call, so the caller owns/reuses the buffer. */
+/* One OSD block: position in 16x16 macroblocks; bits is a 16-aligned ARGB1555
+ * bitmap (bit15 = opaque), copied during the call. */
 struct mediad_venc_ovl_blk {
     unsigned short start_mb_x, start_mb_y, end_mb_x, end_mb_y;
     const void *bits;
@@ -100,9 +94,8 @@ struct mediad_venc_ovl_blk {
     unsigned char hw_invert;   /* 1: LUMA_REVERSE block (hardware re-decides per frame) */
 };
 
-/* Push the whole overlay set to the encoder; n == 0 clears it. Maps to
- * libcedarc VideoEncSetParameter(FWM_VENC_PARAM_OVERLAY) - the same call the
- * vendor middleware makes (VideoEnc_Component.c:3197). Returns 0 on success. */
+/* Push the whole overlay set (FWM_VENC_PARAM_OVERLAY); n == 0 clears it.
+ * Returns 0 on success. */
 int mediad_venc_set_overlay(struct mediad_venc *v,
                             const struct mediad_venc_ovl_blk *blks, int n);
 

@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
-"""
-make_stock_reg.py - turn a captured stock ISP register table into
-isp_cfg/stock_reg.c for mediad's --wrap'd isp_set_load_reg().
 
-Input is one `loadreg_NNN.bin` dumped by the register-capture tool (private workspace, work/ioctl_trace/isp_trace.c) while
-stock rmm runs on the camera (see other.md). Use a settled frame (not 000).
-The output is vendor-derived and gitignored.
-
-Usage: make_stock_reg.py <loadreg_NNN.bin> isp_cfg/stock_reg.c
-"""
+# Turn a load-reg table captured from your own camera's stock rmm (a settled
+# frame) into isp_cfg/stock_reg_tbl.c for the STOCK_REG=1 build. Output is gitignored.
+"""Usage: make_stock_reg.py <loadreg_NNN.bin> isp_cfg/stock_reg_tbl.c
+(the output is vendor-derived: do not commit it)"""
 import sys
 
 def main():

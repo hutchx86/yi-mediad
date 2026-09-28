@@ -1,17 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
-"""Auto-generated ISP struct layouts: *520* (open tree) vs *521* (rmm).
-
-The 521 offsets/sizes were computed by compiling the isp522 branch headers
-(github.com/vamrs-feng/allwinner-isp6xx, isp522/libisp) with ISP_VERSION=521 and
-printing offsetof()/sizeof(). Field names/order match the open tree headers.
-Do not edit by hand; regenerate with tools/isp_layout_521.py if needed.
-"""
+"""ISP struct layouts, 520 (open tree) vs 521 (rmm): offsetof()/sizeof() from
+public isp522 headers built with ISP_VERSION=521. Generated; do not hand-edit."""
 
 SIZES_520 = {'isp_test_param': 204, 'isp_3a_param': 5812, 'isp_tunning_param': 83192, 'isp_dynamic_param': 7736, 'isp_dynamic_config': 540}
-# 521 sizes from the Lindenis V833 (sun8iw19p1) headers - the SDK rmm was built
-# with. NOT the public isp522 branch (which differs by 12 B: isp522 has an extra
-# `shading_triger`, and a different pltm/gap layout). See gen note below.
+# 521 sizes from the V833 headers rmm was built with (the public isp522 branch
+# differs by 12 B).
 SIZES_521 = {'isp_test_param': 216, 'isp_3a_param': 5836, 'isp_tunning_param': 118596, 'isp_dynamic_param': 8468, 'isp_dynamic_config': 592}
 
 LAYOUTS = {

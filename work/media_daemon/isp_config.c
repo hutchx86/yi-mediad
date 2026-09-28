@@ -1,17 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * isp_config.c - our from-scratch ISP tuning + controls for mediad.
- *
- * No vendor data and no other sensor's tuning: we start from the libisp's own
- * initializer (ae/awb/wb/hist) and layer only our generated tables/controls on
- * top, through the libisp's own path (parser_ini_info -> isp_tuning_init ->
- * isp_ctx_config_init -> __isp_ctx_cfg_mod -> prebuilt packers).
- *
- * Validated on y623: CCM (saturation/hue) works reliably; gamma and the tone
- * modules (pltm/drc/cem) need a real tuning and break the stream when enabled
- * without one; brightness/denoise depend on algorithm data we do not have.
- */
+/* isp_config.c - ISP tuning fallback and picture controls: our own generated
+ * tables layered on the libisp initializer when no camera tuning is available,
+ * plus the runtime appliers (CCM, gamma, PLTM, denoise, day/night swap). */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -21,9 +12,6 @@
 
 #include "isp_config.h"   /* fwi_* types + HW_ISP_CFG_* via framework_isp.h */
 
-/* (The V536 520 tree's generic `isp_default_ini_4v5.h` is not present in the
- * sun8iw19p1 521 tree; we no longer need it - the 3A algorithm libs default
- * themselves and we fill our own tables.) */
 
 #define GAMMA_POINTS 1024
 #define ISP_DEV 0
@@ -36,8 +24,7 @@ static int g_hue = 50;
 static int g_sharpness = 5;
 static int g_brightness = 50;
 static int g_contrast = 50;
-/* Denoise defaults (owner decision 2026-09-27): spatial on, chroma off,
- * temporal on, strength 100 (encoder 3D filter off, main.c). */
+/* Denoise defaults: spatial on, chroma off, temporal on, strength 100. */
 static int g_denoise = 100; /* strength ramp 0..100; 0 = the tuning's own */
 static int g_tdf_want = 1;  /* temporal (3DNR); see isp_config_want_tdf */
 static int g_nr2d_want = 1; /* spatial (2D) denoise */
@@ -91,19 +78,14 @@ static fwi_tuning_modules_t *tunning(void)
     return &isp_ctx[ISP_DEV].tuning.modules;
 }
 
-/* Per-frame module_cfg edits (packers for these are real functions). Called
- * from isp_manage.c right before isp_hardware_update(). NOTE: this is the one
- * control still done at register/module_cfg level; denoise's SDK equivalent is
- * HW_ISP_CFG_DYNAMIC_DENOISE/TDF (per-LV value arrays), which needs its ramp
- * re-expressed before it can replace this. */
+/* Per-frame module_cfg edits, called right before isp_hardware_update(); the
+ * one control (denoise) still applied at register level. */
 void isp_control_hook(fwi_hw_module_cfg_t *cfg)
 {
     int i;
 
-    /* The per-frame enables must agree with the denoise switches, which
-     * stock_reg.c also enforces on the load-reg word: two writers disagreeing
-     * flipped a module between/within frames (dark horizontal bands, r35gb
-     * 2026-09-26, denoise=50 from Protect with nr2d/cnr off). */
+    /* Must agree with stock_reg.c's load-reg enforcement: two disagreeing
+     * writers flip a module mid-frame (dark horizontal bands). */
     cfg->module_enable_flag = g_nr2d_want ? (cfg->module_enable_flag | FWI_ISP_FEATURES_D2D)
                                           : (cfg->module_enable_flag & ~FWI_ISP_FEATURES_D2D);
     cfg->module_enable_flag = g_cnr_want ? (cfg->module_enable_flag | FWI_ISP_FEATURES_CHROMA_DENOISE)
@@ -199,28 +181,18 @@ static void apply_sharp(void)
     isp_set_cfg(ISP_DEV, HW_ISP_CFG_TUNING_TABLES, HW_ISP_CFG_TUNING_SHARP, &s);
 }
 
-// NOTE (2026-09-14): the dynamic-saturation cfg (apply_sat) was REMOVED. It
-// writes HW_ISP_CFG_DYNAMIC_SATURATION with cb/cr = (sat-50)*4, and at neutral
-// that lands as a zeroed matrix -> the ISP logs
-// "isp_config_saturation: Saturation SUM != 16, sum = 0" on every frame.
-// Saturation is handled by the CCM (apply_ccm) instead.
+// Saturation goes through the CCM: HW_ISP_CFG_DYNAMIC_SATURATION at neutral
+// lands as a zeroed matrix ("Saturation SUM != 16").
 
 static int apply_all(void)
 {
-    /* Live per-frame fields: plain struct writes the algorithms read each
-     * frame (isp_manage.c:318 GTM reads adjust.brightness/contrast;
-     * isp_manage.c:265 AE copies ae_settings). No ISP reconfiguration, so this
-     * is always safe. */
+    /* Fields the GTM/AE read every frame: plain writes, always safe. */
     isp_ctx[ISP_DEV].adjust_ctl.brightness = (g_brightness - 50) * 4;
     isp_ctx[ISP_DEV].adjust_ctl.contrast = (g_contrast - 50) * 4;
     isp_ctx[ISP_DEV].ae_ctl.exposure_compensation = (g_exposure - 50) * 4;
 
-    /* The isp_set_cfg() + isp_update() + FULL isp_ctx_config_init() path is
-     * what applies the CCM/sharp tables (and the day/night tuning swap), but on
-     * this RTOS/vendor-WDR build it corrupts the running ISP+VI pipeline - it
-     * zeros the saturation matrix (flooding isp_config_saturation) and wedges
-     * the sensor/board (only a power cycle recovers). It is therefore OFF by
-     * default; set MEDIAD_ISP_APPLY=1 to exercise it for experiments. */
+    /* The full re-init path (CCM/sharp tables) wedges the running pipeline on
+     * this build, so it is off unless MEDIAD_ISP_APPLY is set. */
     if (getenv("MEDIAD_ISP_APPLY")) {
         apply_ccm();
         apply_sharp();
@@ -240,19 +212,13 @@ void isp_config_fill_param(fwi_tuning_image_t *param)
     fwi_tuning_modules_t *t = &param->modules;
     int i;
 
-    /* AE highlight (blowout) prevention: the open-SDK tuning enables this
-     * (ae_blowout_pre_en=1, attr=30). Without it the AE exposes the scene's
-     * direct lights into clip and they render as the blue/black "highlight
-     * alert" zones. We only fill test/tunning settings from scratch, so the 3a
-     * block (where these live) must be set here. */
+    /* AE blowout prevention, as the SDK tuning sets it; without it direct
+     * lights clip into blue/black zones. */
     param->a3.ae_highlight_guard_en = cal_on("blowout", 1);
     param->a3.ae_highlight_guard_level = cal_on("blowout_attr", 30);
 
-    /* AE weighting grid. Every SDK sensor config sets this; the from-scratch
-     * build left it all-zero, which makes the AE's window-weight sum zero and
-     * `get_ae_avg_lum_q8` divide by zero (SIGFPE) as soon as the table-based AE
-     * path runs - which is exactly what commanding-WDR (`wdr_mode=2`) selects.
-     * The 8x8 centre-weighted pattern below is the SDK's generic one. */
+    /* AE weighting grid (generic 8x8 centre-weighted): an all-zero grid makes
+     * the table-based AE (selected by WDR mode) divide by zero. */
     {
         static const int32_t win[64] = {
             1, 1, 1, 1, 1, 1, 1, 1,
@@ -267,9 +233,8 @@ void isp_config_fill_param(fwi_tuning_image_t *param)
         memcpy(param->a3.ae_zone_weight, win, sizeof(win));
     }
 
-    /* Our generated gamma curve, exponent controlled by the `gamma` runtime
-     * control. A strong darkening curve (>1) makes the AE ramp gain and blooms
-     * direct lights; 0.85 renders clean on y623. See other.md. */
+    /* Generated gamma curve (exponent from the `gamma` control); a darkening
+     * curve (>1) makes the AE ramp gain and bloom lights, 0.85 renders clean. */
     fill_gamma_tbl(t, gamma_exp(g_gamma));
     t->gamma_trig_cfg[0] = 1300;
     t->gamma_trig_cfg[1] = 1100;
@@ -291,9 +256,8 @@ void isp_config_fill_param(fwi_tuning_image_t *param)
         t->sharp_luminance[i] = (uint16_t)((i * 8) > 256 ? 256 : i * 8);
     }
 
-    /* Gamma stays default-OFF: the 520 libisp gamma stage is incompatible with
-     * this V536/521 pipeline (black highlight holes with any table, incl. the
-     * SDK's own 4v5 table). See other.md. `gamma=1` enables it for testing. */
+    /* Gamma off by default: this stage leaves black holes in highlights with
+     * any table. `gamma=1` enables it for testing. */
     test->gamma_en = cal_on("gamma", 0);
     test->colour_matrix_en = cal_on("cm", 1);
     test->sharpen_en = cal_on("sharp", 1);
@@ -377,10 +341,8 @@ int isp_config_set_exposure(int v)
     return apply_all();
 }
 
-/* Snapshot of the camera's own gamma curve (imported from its rmm tuning), kept
- * so the slider *transforms* it instead of replacing it - v=50 == the stock
- * curve. Captured lazily on first use; the tuning is still the imported curve
- * then (nothing else writes gamma_tbl_ini before the first slider move). */
+/* The camera's own gamma curve, captured on first use, so the slider transforms
+ * it rather than replacing it (50 == stock). */
 static uint16_t g_gamma_base[5][3 * GAMMA_POINTS];
 static int g_gamma_base_ok;
 
@@ -392,9 +354,8 @@ static void gamma_capture(void)
     g_gamma_base_ok = 1;
 }
 
-/* Gamma slider via the SDK tuning API: isp_set_cfg(HW_ISP_CFG_TUNING,
- * HW_ISP_CFG_TUNING_GAMMA) carries the 5-LV table, HW_ISP_CFG_TEST_ENABLE turns
- * the gamma module on, then isp_update() applies. No direct struct pokes. */
+/* Gamma slider via the tuning API: the 5-LV table (HW_ISP_CFG_TUNING_GAMMA),
+ * the module enable (HW_ISP_CFG_TEST_ENABLE), then isp_update(). */
 int isp_config_set_gamma(int v)
 {
     fwi_gamma_table_arg_t attr;
@@ -444,9 +405,8 @@ int isp_config_set_gamma(int v)
 
 int isp_config_get_gamma(void) { return g_gamma; }
 
-/* Copy the live module enables into an isp_test_enable_cfg. The runtime
- * enable/disable controls (pltm, tdf) edit one field and re-apply this, so every
- * other module keeps its current (stock/vendor) state. */
+/* Copy the live module enables, so a toggle (pltm, tdf) changes one field and
+ * leaves every other module as it is. */
 static void enable_cfg_from(fwi_enable_arg_t *en,
                             const fwi_tuning_enables_t *ts)
 {
@@ -462,12 +422,8 @@ static void enable_cfg_from(fwi_enable_arg_t *en,
     en->local_tone_en = ts->local_tone_en; en->wdr_merge_en = ts->wdr_merge_en; en->crosstalk_en = ts->crosstalk_en;
 }
 
-/* PLTM (this ISP's HDR/tone-map) on/off. The vendor tuning ships pltm_en=1, so
- * 1 == stock. Unlike the `wdr` strength control (AW_MPI_ISP_SetPltmWDR, which
- * only writes tune.pltmwdr_level), this toggles the module itself, so it can
- * express Protect's "wdr = Off". Uses the same test-enable + isp_update path as
- * isp_config_set_gamma(); needs y623 validation (runtime PLTM reconfig has
- * historically perturbed the WDR pipeline). */
+/* PLTM (HDR tone mapping) module on/off, 1 == stock; unlike the `wdr` strength
+ * this can express Protect's "WDR off". Same path as isp_config_set_gamma(). */
 int isp_config_set_pltm(int on)
 {
     fwi_enable_arg_t en;
@@ -498,13 +454,8 @@ int isp_config_want_tdf(void) { return g_tdf_want; }
 
 int isp_config_get_tdf(void) { return g_tdf_want; }
 
-/* Denoise module switches (tdf, spatial 2D, chroma). Edit the LIVE tuning's
- * enable and re-apply it with isp_ctx_config_update(), the same path the
- * day/night import uses. NOT isp_set_cfg(TEST_ENABLE) + isp_update(): that
- * copies the stored (day) tuning back over the live one, so a toggle at night
- * put the day CCM on the IR image - a purple cast until restart (r35gb
- * 2026-09-26). The final module-enable word is also enforced at load-reg
- * (stock_reg.c), since a later tuning reload rebuilds it. */
+/* Denoise switches edit the live tuning via isp_ctx_config_update(); isp_update()
+ * would copy the day tuning over a night one (purple IR image). */
 static int set_module_en(int32_t *field, int *want, int on)
 {
     *field = on ? 1 : 0;
@@ -525,10 +476,8 @@ int isp_config_set_cnr(int on)
 }
 int isp_config_want_cnr(void) { return g_cnr_want; }
 
-/* Day/night tuning swap (calls.md "Night Vision"). parser_ini_info() re-fills
- * isp_ini_cfg from the vendor day/night blob (`ir` selects it); apply_all()
- * re-runs the ISP config path and re-asserts the picture controls (which the
- * blob import would otherwise reset). */
+/* Day/night tuning swap: parser_ini_info() reloads the blob `ir` selects, then
+ * the picture controls are re-asserted over it. */
 extern int parser_ini_info(fwi_tuning_image_t *param, char *sensor_name,
                            int w, int h, int fps, int wdr, int ir,
                            int sync_mode, int isp_id);
@@ -540,15 +489,8 @@ int isp_config_set_daynight(int night)
     if (c->sensor.name == NULL)
         return -1;
 
-    /* Import the camera's OWN day/night tuning (the night blob changes the whole
-     * profile - AE tables, gamma, CCM, PLTM, denoise, sharp, contrast, CEM - not
-     * just a monochrome tweak) and apply it through the tuning UPDATE path
-     * (`__isp_ctx_update` via `isp_ctx_config_update`): it re-copies the tuning
-     * into module_cfg and re-inits the per-module cfgs, but does NOT run
-     * `__isp_ctx_cfg_lib` (the runtime-state reset that was the destabiliser).
-     * NOTE: call `isp_ctx_config_update()` directly, NOT `isp_update()` - the
-     * latter first overwrites ctx->isp_ini_cfg from tuning->params, discarding
-     * the import. */
+    /* Apply the whole imported profile via isp_ctx_config_update(), which skips
+     * the runtime-state reset; isp_update() would discard the import. */
     parser_ini_info(&c->tuning, c->sensor.name,
                     c->sensor.sensor_width, c->sensor.sensor_height,
                     (int)c->sensor.fps_fixed, 0, night ? 1 : 0, 0, ISP_DEV);

@@ -1,20 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * isp_control.h - runtime ISP picture-control surface for mediad.
- *
- * Phase 1b (todo.md): unifi_client_go/avclientd forwards Protect's picture
- * settings to mediad over a unix socket; mediad applies them with the vendor
- * AW_MPI_ISP_Set* API. Because stock_reg.c replays a captured stock register
- * table, the setter effect on our own computed table would otherwise be
- * discarded, so for the controls that live in the shared module-register block
- * (first 0x1000) we also overlay those words from the computed table onto the
- * replayed stock table each frame (the same trick already used for the AWB
- * gains at 0x370).
- *
- * Values on the wire are the vendor API's raw values (mpi_isp.h ranges), not
- * Protect's 0-100 UI scale - the controller-side mapping lives in goclient.
- */
+/* isp_control.h - runtime picture-control surface: the unix control socket
+ * (fed by yi-protect's client and mediad_ctl), mediad.conf and the optional
+ * web UI. */
 #ifndef MEDIAD_ISP_CONTROL_H
 #define MEDIAD_ISP_CONTROL_H
 
@@ -40,9 +28,8 @@ int mediad_set_shutter(int mode);
  * device the setters act on. Returns 0 on success. Idempotent. */
 int isp_control_start(int isp_dev);
 
-/* Set the model's mounting-orientation BASE (capability table, e.g. r35gb
- * 1/1). The user's mirror/flip are applied relative to it (hardware =
- * base XOR user). Call once at boot, after the vipps/ISP are up. */
+/* Mounting-orientation base; user mirror/flip apply XOR on top. Call once at
+ * boot, after the vipps/ISP are up. */
 void isp_control_set_orientation(int base_mirror, int base_flip);
 
 /* Read a mediad.conf (key=value, keys == control keys) and queue the values;
@@ -61,20 +48,17 @@ unsigned int isp_control_overlay_mask(void);
 void isp_control_apply_overlay(unsigned char *dst, const unsigned char *computed,
                                unsigned int len);
 
-/* Debug/capture: if a `dump <path>` request is pending, copy the path and
- * return 1 (and clear it). stock_reg.c then writes the computed (pre-replay)
- * register table there on the next load-reg. Used by the 7a setter harness. */
+/* If a `dump <path>` request is pending, copy the path, clear it and return 1;
+ * stock_reg.c then writes the computed register table there. */
 int isp_control_pending_dump(char *out, size_t n);
 
-/* Direct edits to the replayed stock register table (Phase 1b applier
- * experiments). `off` is a byte offset into the table, `val` a 32-bit word.
- * Return 0 on success. No-ops (return -1) if there is no stock table. */
+/* 32-bit edit at byte `off` of the replayed table; 0 on success, -1 if there
+ * is no stock table. */
 int isp_stock_reg_poke(unsigned int off, unsigned int val, unsigned int *old);
 int isp_stock_reg_peek(unsigned int off, unsigned int *val);
 
-/* Calibrated per-control transforms on the replayed table. Each is applied to a
- * fresh copy of the baseline table on every frame, so scale factors do not
- * compound. Entries are u16 (16-bit) values. */
+/* Per-control transforms on u16 entries of the replayed table, re-applied to a
+ * fresh baseline copy each frame so they do not compound. */
 #define ISP_XFORM_SCALE  0  /* v = v * p1 / p2 */
 #define ISP_XFORM_OFFSET 1  /* v = v + p1 */
 int isp_control_set_xform(int type, unsigned int off, unsigned int len,

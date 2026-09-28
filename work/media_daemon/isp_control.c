@@ -1,19 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * isp_control.c - runtime ISP picture-control socket for mediad. See
- * isp_control.h for the why.
- *
- * Protocol (line-delimited, one reply line per request):
- *   set <key> <value>\n   -> ok <key> <value>   | err <reason>
- *   get <key>\n           -> ok <key> <value>   | err <reason>
- *   list\n                -> ok list <key,key,...>
- *   reset\n               -> ok reset
- *   ping\n                -> ok pong
- *
- * Socket: /tmp/mediad_ctl.sock (override with MEDIAD_CTL_SOCK).
- * Keys/values are the vendor API's raw values, see g_controls[].
- */
+/* isp_control.c - control socket (one request line, one reply line: set, get,
+ * list, reset, ping, pin, unpin, ...; see README), mediad.conf, night vision
+ * and the optional web UI. Keys and ranges: g_controls[]. */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,11 +38,8 @@ struct ctl {
     int deft;               /* value restored by `reset` (if mask != 0) */
     int (*set)(int dev, int v);
     int (*get)(int dev, int *v);
-    unsigned char locked;   /* not settable over the socket (Protect); only via
-                             * mediad.conf / the built-in web UI */
-    unsigned char pinned;   /* set over the socket is ACKed but ignored, so the
-                             * value fixed in mediad.conf / the web UI survives
-                             * Protect's connect-time re-assert (e.g. enable3dnr) */
+    unsigned char locked;   /* not settable over the socket; conf / web UI only */
+    unsigned char pinned;   /* socket sets ACKed but ignored (conf/web UI value wins) */
 };
 
 static int set_saturation(int d, int v) { (void)d; return isp_config_set_saturation(v); }
@@ -86,10 +72,8 @@ static int get_venc3d(int d, int *v)    { (void)d; *v = mediad_get_venc3d(); ret
 static int get_tdf_cfg(int d, int *v)   { (void)d; *v = isp_config_get_tdf(); return 0; }
 static int set_wdr(int d, int v)        { return AW_MPI_ISP_SetPltmWDR(d, v); }
 static int set_flicker(int d, int v)    { return AW_MPI_ISP_SetFlicker(d, v); }
-/* Orientation. The capability table supplies the mounting-correct BASE for a
- * model (e.g. r35gb is rotated 180); the user's Protect/UI mirror/flip is
- * relative to it, so the hardware gets base XOR user. Getters report the user
- * value (what Protect shows), not the effective hardware state. */
+/* Orientation: hardware = model base XOR user setting; getters report the user
+ * value (what Protect shows). */
 static int g_orient_base_mirror, g_orient_base_flip;
 static int g_user_mirror, g_user_flip;
 
@@ -141,11 +125,8 @@ static int get_osd_color(int d, int *v)  { (void)d; *v = osd_get(OSD_COLOR); ret
 static int set_osd_pos(int d, int v)     { (void)d; return osd_set(OSD_POS, v); }
 static int get_osd_pos(int d, int *v)    { (void)d; *v = osd_get(OSD_POS); return 0; }
 
-/* --- Night vision: IR-cut filter + IR LED (CPLD) and the day/night ISP swap.
- * The filter/LED are not ISP; they are ioctls on /dev/cpld_periph (0x7015 =
- * filter out/night, 0x7016 = filter in/day, 0x7013 = LED level). Reverse
- * engineered from rmm; see calls.md. The ISP image side is
- * isp_config_set_daynight() (loads the day/night vendor blob). --- */
+/* Night vision: IR-cut filter and IR LED via /dev/cpld_periph ioctls, plus the
+ * ISP day/night swap (isp_config_set_daynight()). */
 #define CPLD_DEV       "/dev/cpld_periph"
 #define CPLD_IRCUT_OUT 0x7015
 #define CPLD_IRCUT_IN  0x7016
@@ -167,10 +148,8 @@ static int g_ir_led;    /* 0..100 */
 static int g_nightvision = 2; /* 0 day, 1 night, 2 auto */
 static int g_shutter;   /* VI_SHUTTIME_MODE_E */
 
-/* Drive filter + LED + ISP tuning to day(0)/night(1). Order matches stock rmm:
- * move the filter first, wait for it to travel, then set the LED.
- * 0x7015 = filter out (night/IR-passing), 0x7016 = filter in (day),
- * 0x7013 = LED level (pointer to int32). Same numbers on y623/h52ga/r35gb. */
+/* Day(0)/night(1), in stock order: filter first (0x7015 out, 0x7016 in), wait
+ * for it to travel, then the LED level (0x7013, int32 pointer). */
 static void night_state_save(void);
 
 static void daynight_apply(int night)
@@ -193,21 +172,13 @@ static void daynight_apply(int night)
     g_ir_led = (int)lvl;
     night_state_save();
     isp_config_set_daynight(night);
-    /* isp_config_set_daynight only flips the flag (the full tuning swap is
-     * opt-in); re-apply the colour matrix so night's forced monochrome (see
-     * apply_ccm) takes effect, independent of the user saturation control. */
+    /* Re-apply the CCM so night's forced monochrome takes effect regardless of
+     * the saturation control. */
     isp_config_set_saturation(isp_config_get_saturation());
 }
 
-/* Auto day/night at a configured lux threshold.
- *
- * The only brightness signal this ISP exposes is the AE light value
- * (AW_MPI_ISP_GetEnvLV -> sensor_set.ev_set_curr.ev_lv). Empirically it is in
- * 1/100-EV steps (a lit room reads ~550, i.e. ~5.5 EV), so
- * lux = 2.5 * 2^(lv/100). There is no lux meter / calibration, so the
- * threshold is an approximate/relative trigger - read `lv`/`lux` and dial
- * `night_lux` to taste. Hysteresis is 10 lv (=0.1 EV) and a switch needs
- * NIGHT_DEBOUNCE consecutive 3 s polls, mirroring stock's day/night debounce. */
+/* Auto day/night from the AE light value (1/100 EV): lux ~= 2.5 * 2^(lv/100),
+ * uncalibrated. 10 lv hysteresis, NIGHT_DEBOUNCE consecutive 3 s polls. */
 #define NIGHT_LV_PER_EV 100.0
 #define NIGHT_HYST_LV   40        /* 0.4 EV band, so a flickering scene can't oscillate */
 #define NIGHT_POLL_SEC  3
@@ -218,9 +189,8 @@ static void daynight_apply(int night)
 #define NIGHT_SETTLE_POLLS 4      /* polls (12 s) for AE to settle under IR */
 #define NIGHT_AMBIENT_RISE_LV 100 /* 1 EV above the IR-lit baseline = real ambient light */
 
-/* Switch-to-night threshold, lux. 20, not 5: in the dark the lv estimate
- * floors at about 4-8 "lux" (y623 lv 72, r35gb lv 100-160 at max gain), so a
- * 5 lux threshold (night below lv ~60) could never trigger (2026-09-27). */
+/* Switch-to-night threshold, lux: the estimate floors at about 4-8 "lux" in
+ * the dark, so it must sit above that. */
 static double g_night_lux = 20.0;
 static int    g_lv_live;           /* last measured lv (calibration readout) */
 static pthread_t g_night_tid;
@@ -244,9 +214,8 @@ static void *night_poller(void *arg)
     int last_switch_tick = 0;
     time_t amb_next = 0;
     int amb_period = NIGHT_AMBIENT_PERIOD;
-    /* Night with our IR on: the IR-lit lv is inflated and says nothing about
-     * daylight. Track its settled minimum (ir_base) and only consider day once
-     * lv rises clearly above it (ambient light added on top of the IR). */
+    /* With the IR on, lv is inflated: track its settled minimum (ir_base) and
+     * consider day only once lv rises clearly above it. */
     int prev_night = -1, ir_base = -1, settle = 0;
     int prev_lv = -1000, steady = 0;    /* decisions only on a settled AE */
     (void)arg;
@@ -258,12 +227,8 @@ static void *night_poller(void *arg)
             break;
         mode = g_nightvision;
         if (mode != 2) { cross = 0; resync = 1; continue; }
-        /* Re-read the real filter state every poll. A manual set_ir_cut() or
-         * set_nightvision() (0/1) moves the hardware and updates g_ir_cut but
-         * cannot touch this local, so a once-sampled belief goes stale; auto
-         * would then refuse to switch whenever that stale value already
-         * matched what it computed. daynight_apply() keeps g_ir_cut in sync on
-         * our own switches. */
+        /* Re-read the filter state every poll: manual switches change g_ir_cut
+         * behind this loop's back. */
         is_night = g_ir_cut;
         if (is_night != prev_night) {       /* entered night (ours or manual) */
             prev_night = is_night;
@@ -278,20 +243,15 @@ static void *night_poller(void *arg)
         if (++tick % 10 == 0)
             fprintf(stderr, "mediad: auto day/night poll lv=%d lux=%.1f\n",
                     lv, lv_to_lux(lv));
-        /* Decide only once the AE has settled: three polls within +-20 lv.
-         * After a (re)start it converges for well over 12 s from a bright
-         * prior (lv ~800 in a dark room), and acting on that clicked the
-         * filter to day and back (2026-09-27). */
+        /* Decide only once the AE has settled (three polls within +-20 lv); it
+         * can take well over 12 s after a start. */
         steady = (abs(lv - prev_lv) <= 20) ? steady + 1 : 0;
         prev_lv = lv;
         if (steady < 2)
             continue;
         thr = lux_to_lv(g_night_lux);
-        /* day->night when lv drops below thr-hyst. At night the IR inflates
-         * lv, so stay night until lv rises NIGHT_AMBIENT_RISE_LV above the
-         * settled IR-lit baseline; the IR-off check below then decides against
-         * thr+hyst. (Comparing the IR-lit lv to thr directly made both cameras
-         * flip back to day every ~2 min, 2026-09-27.) */
+        /* Night below thr-hyst; back to day only after lv rises
+         * NIGHT_AMBIENT_RISE_LV above the IR baseline and passes the IR-off check. */
         if (is_night) {
             if (settle > 0) {
                 settle--;
@@ -310,24 +270,20 @@ static void *night_poller(void *arg)
         if (!resync && tick - last_switch_tick < NIGHT_MIN_SWITCH_TICKS)
             continue;                       /* anti-thrash: >=30 s between switches */
         cross = 0;
-        /* One-shot resync on (re-)entering auto: the first decision skips both
-         * the debounce and the min-switch floor and re-asserts the hardware
-         * even if it already agrees, mirroring lux.go's needSync path. */
+        /* First decision after entering auto skips the debounce and re-asserts
+         * the hardware even if it already agrees. */
         resync = 0;
         if (is_night && want == 0) {
-            /* Our own IR LEDs light the night scene, so the AE value is
-             * inflated and cannot distinguish daylight from IR: confirm with
-             * the LED off. Only occasionally (the LED is briefly off) so this
-             * does not flicker. */
+            /* The IR-lit lv cannot tell daylight from IR: occasionally confirm
+             * with the LED briefly off. */
             time_t now = time(NULL);
             int32_t off = 0, on = 100;
             int lv2 = 0, prev = -1000, stable = 0, i;
             if (now < amb_next)
                 continue;
             cpld_req(CPLD_LED_LEVEL, &off);
-            /* Let the AE converge without the IR (1.2 s was far too short:
-             * it still read the IR-lit value and called it day). Stop early
-             * once clearly dark, or once lv holds steady for ~1 s. */
+            /* Let the AE converge without the IR; stop early once clearly dark
+             * or once lv holds steady for ~1 s. */
             for (i = 0; i < 20; i++) {
                 usleep(300 * 1000);
                 lv2 = AW_MPI_ISP_GetEnvLV(0);
@@ -387,10 +343,8 @@ static int set_ir_led(int d, int v)
 }
 static int get_ir_led(int d, int *v) { (void)d; *v = g_ir_led; return 0; }
 
-/* Day/night mode and threshold survive a mediad restart (as the bitrate does
- * in mediad.bitrate): Protect sends them only when changed, so without this a
- * restart fell back to the default threshold and auto never switched. Loaded
- * before mediad.conf, so a pin there still wins. */
+/* Day/night mode and threshold persist across restarts (Protect sends them only
+ * on change); loaded before mediad.conf, so a pin there still wins. */
 #define MEDIAD_NIGHT_FILE "/tmp/sd/unifi/etc/mediad.night"
 static int g_night_loaded;          /* don't rewrite the file while loading it */
 
@@ -459,73 +413,45 @@ static int get_flicker(int d, int *v)    { return AW_MPI_ISP_GetFlicker(d, v); }
 static int get_mirror(int d, int *v)     { (void)d; *v = g_user_mirror; return 0; }
 static int get_flip(int d, int *v)       { (void)d; *v = g_user_flip; return 0; }
 
-/*
- * Register ranges to overlay from our computed table onto the replayed stock
- * table (offsets in the shared first 0x1000 of the 2019/2021 load-reg layout,
- * from other.md). Controls whose encoding lives in the 521 gamma/DRC tables
- * (brightness/contrast) are intentionally absent - overlaying those would
- * discard stock's tone. The WDR module block at 0x200 is also not overlaid: the
- * replayed table is stock's day config and its WDR enable must stay consistent
- * with it.
- */
+/* Register ranges overlaid onto a replayed stock table (shared first 0x1000).
+ * Brightness/contrast (gamma/DRC tables) and WDR (0x200) are left as stock. */
 static struct ctl g_controls[] = {
-    /* 0..100 picture levels, 50 == the camera's stock/neutral point. brightness/
-     * contrast go through isp_config_set_*_cfg (the signed tune.adjust.* fields,
-     * (v-50)*4), NOT the raw AW_MPI_ISP_SetBrightness (native range -126..126),
-     * so Protect's stock 50 maps to native 0. Likewise saturation/hue use the
-     * CCM identity matrix at 50. See calls.md "Stock defaults". */
+    /* 0..100 picture levels, 50 == stock/neutral: brightness/contrast map to
+     * (v-50)*4, saturation/hue to the CCM (identity at 50). */
     { "brightness", 0,                  0,   100, 50,  set_brightness_cfg, get_brightness_cfg },
     { "contrast",   0,                  0,   100, 50,  set_contrast_cfg,   get_contrast_cfg },
     { "saturation", ISP_CTL_SATURATION,  0,   100, 50,  set_saturation, get_saturation_cfg },
     { "hue",        0,                  0,   100, 50,  set_hue_cfg,    get_hue_cfg },
     { "sharpness",  ISP_CTL_SHARPNESS,  0,   10,  5,   set_sharpness,  get_sharpness_cfg },
-    /* Denoise strength ramp, 0..100 (0 = the tuning's own thresholds).
-     * Default 100 (owner decision 2026-09-27); which modules run is up to
-     * the tdf/nr2d/cnr switches below. */
+    /* Denoise strength ramp, 0..100 (0 = the tuning's own thresholds); the
+     * tdf/nr2d/cnr switches pick which modules run. */
     { "denoise",    ISP_CTL_NR,         0,   100, 100, set_denoise_cfg, get_denoise_cfg },
     { "exposure",   0,                  0,   100, 50,  set_exposure_cfg, get_exposure_cfg, 1 },
     { "aebias",     0,                  0,   8,   4,   set_aebias,     get_aebias,       1 },
-    /* Gamma uses the camera's own imported curve by default (v=50 == stock);
-     * locked from the socket so Protect can't replace it. The web UI (which
-     * bypasses the lock) can still tune it for advanced users. */
+    /* Gamma transforms the camera's own curve (50 == stock); locked from the
+     * socket, adjustable from mediad.conf or the web UI. */
     { "gamma",      0,                  0,   100, 50,  set_gamma_cfg,  get_gamma_cfg, 1 },
-    /* 3DNR module on/off (Protect enable3dnr). Default ON (owner decision
-     * 2026-09-27; it can leave a faint ghost behind motion in low light). */
+    /* 3DNR module on/off (Protect enable3dnr). Default on; it can leave a faint
+     * ghost behind motion in low light. */
     { "tdf",        ISP_CTL_3DNR,       0,   1,   1,   set_tdf_cfg,    get_tdf_cfg },
-    /* The other denoisers, each switchable on its own: ISP spatial (2D,
-     * default on) and chroma denoise (default off), and the encoder's 3D
-     * filter strength (the 9-bit hardware threshold, 0 off .. 511, default
-     * off; the vendor levels 1..3 are about 1..6). */
+    /* ISP spatial and chroma denoise switches, and the encoder 3D filter
+     * strength (hardware threshold 0..511; vendor levels 1..3 are about 1..6). */
     { "nr2d",       0,                  0,   1,   1,   set_nr2d_cfg,   get_nr2d_cfg },
     { "cnr",        0,                  0,   1,   0,   set_cnr_cfg,    get_cnr_cfg },
     { "venc3d",     0,                  0,   511, 0,   set_venc3d,     get_venc3d },
-    /* Protect drives HDR plus bitrate (ChangeIspSettings.wdr /
-     * ChangeVideoSettings bitRateCbrAvg|VbrMax). `wdr` (PLTM strength) is
-     * RE-LOCKED 2026-09-14: with the sister client still mapping Protect's
-     * default wdr=1 to a single strength 128, the unlocked socket applied
-     * SetPltmWDR(128) at connect, flattening the y623 WDR image (bright /
-     * washed out) until the ISP stalled. Runtime strength changes corrupt the
-     * WDR pipeline, so only the stock strength 0 is safe. Keep locked until the
-     * client split (wdr -> pltm 0/1 + wdr strength) lands, and then only
-     * unlock after on-camera calibration. `pltm` below is the usable HDR
-     * on/off. */
+    /* `wdr` (PLTM strength) is locked from the socket: runtime strength changes
+     * corrupt the WDR pipeline. `pltm` below is the usable HDR on/off. */
     { "wdr",        ISP_CTL_PLTMWDR,    0,   255, 0,   set_wdr,        get_wdr, 1 },
-    /* PLTM/WDR module on/off; vendor pltm_en=1, so 1 == stock. This is the
-     * "HDR off" half: `wdr` alone is only a strength, so Protect's wdr=0 (Off)
-     * needs this to actually disable the module. Needs y623 validation. */
+    /* PLTM module on/off (1 == stock): what Protect's "WDR off" needs. */
     { "pltm",       0,                  0,   1,   1,   set_pltm_cfg,   get_pltm_cfg },
     { "flicker",    0,                  0,   3,   3,   set_flicker,    get_flicker },
     { "mirror",     0,                  0,   1,   0,   set_mirror,     get_mirror },
     { "flip",       0,                  0,   1,   0,   set_flip,       get_flip },
-    /* HIGH encoder bitrate (bps), applied via AW_MPI_VENC_SetChnAttr. LOW is
-     * deliberately locked at its fixed 0.7 Mbps and is not controllable.
-     * Protect's bitRateCbrAvg/VbrMax drive this. The old 2.2 Mbps ceiling was a
-     * weak-2.4-GHz-link compromise; a dedicated AP is now in place and 2.2 Mbps
-     * starved motion at 2304x1296 (the stream sat exactly at the cap and blocked
-     * as soon as the subject moved), so let Protect's target through. */
+    /* HIGH encoder bitrate (bps), driven by Protect's bitRateCbrAvg/VbrMax;
+     * LOW stays at its fixed 0.7 Mbps. */
     { "bitrate",     0, 48000, 4000000, 2800000, set_bitrate,     get_bitrate },
     /* HDR / frequency are aliases for the raw wdr/flicker controls (the
-     * caller does the UI encoding). See calls.md. */
+     * caller does the UI encoding). */
     { "hdr",         0,                  0,   255, 0,   set_wdr,         get_wdr, 1 },
     { "frequency",   0,                  0,   3,   3,   set_flicker,     get_flicker },
     /* Burned-in OSD: date / name / logo (placeholder) / bitrate. */
@@ -554,13 +480,8 @@ static volatile unsigned int g_mask;
 static volatile int g_running;
 static int g_listen_fd = -1;
 
-/* --- Coalescing apply worker ----------------------------------------------
- * The controller repeats the whole settings object on every change, so one UI
- * move can arrive as a burst of `set`s. Applying each immediately hammers the
- * ISP/VENC (stalls/wedges the pipeline). Instead the accept thread records the
- * desired value and signals this single worker, which coalesces a short burst
- * to the latest value per key and applies one settled batch. It also dedupes
- * (a set of an already-applied value is a no-op). */
+/* Coalescing apply worker: a burst of `set`s (Protect resends every field) is
+ * reduced to the latest value per key and applied once; repeats are no-ops. */
 #define PEND_SETTLE_MS 300
 static pthread_mutex_t g_pend_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  g_pend_cv = PTHREAD_COND_INITIALIZER;
@@ -729,14 +650,12 @@ int isp_control_pending_dump(char *out, size_t n)
     return 1;
 }
 
-/* mediad.conf path (set by isp_control_load_config) and a writer for the
- * socket's `pin`/`unpin`: the firmware web page saves through these, so
- * mediad stays the only writer of its own config. */
+/* mediad.conf path and its writer for `pin`/`unpin`, so mediad stays the only
+ * writer of its config (yi-protect's settings page saves through these). */
 static char g_conf_path[160] = "/tmp/sd/unifi/etc/mediad.conf";
 
-/* Rewrite mediad.conf with `key=value` (val != NULL) or without any `key=` /
- * `pin_key=` line (val == NULL). Comments and other lines are kept; the file
- * is replaced by rename so a power cut leaves the old or the new one. */
+/* Set `key=val`, or drop key= / pin_key= lines when val is NULL; other lines
+ * are kept and the file is replaced atomically by rename. */
 static int conf_store(const char *key, const int *val)
 {
     char tmp[176], line[256];
@@ -830,9 +749,8 @@ static void handle_conn(int fd)
         close(fd);
         return;
     }
-    /* handle_conn runs synchronously in the accept thread. A read timeout means
-     * an idle client can't block isp_control_stop()'s pthread_join forever: the
-     * loop also checks g_running, so stop() returns within the timeout. */
+    /* Read timeout: an idle client cannot block isp_control_stop() forever
+     * (handle_conn runs in the accept thread). */
     while (g_running && fgets(line, sizeof(line), f)) {
         char key[64];
         char patharg[160];
@@ -855,9 +773,7 @@ static void handle_conn(int fd)
             }
             dprintf(fd, "\n");
         } else if (strncmp(line, "reset", 5) == 0 && line[5] == 0) {
-            /* Restore every key to its stock default (deft is the camera value
-             * corresponding to the stock camera/Protect setting), not just the
-             * register-overlay ones. */
+            /* Restore every unpinned key to its stock default. */
             int i;
             for (i = 0; i < NCTL; i++) {
                 if (g_controls[i].pinned)
@@ -875,10 +791,8 @@ static void handle_conn(int fd)
                  * set it in mediad.conf or the built-in web UI */
                 dprintf(fd, "err %s is config/webui-only\n", key);
             } else if (c->pinned) {
-                /* ACK so the controller's ack path is undisturbed, but ignore
-                 * the value: the key is pinned by mediad.conf. Protect
-                 * re-asserts some fields (e.g. enable3dnr=1) on every connect;
-                 * without this a conf pin would be silently overwritten. */
+                /* Pinned: ACK but ignore, or Protect's connect-time re-assert
+                 * would overwrite the conf value. */
                 dprintf(fd, "ok %s %d\n", key, value);
             } else if (value < c->vmin || value > c->vmax) {
                 dprintf(fd, "err %s set failed (%d)\n", key, value);
@@ -1089,10 +1003,8 @@ int isp_control_start(int isp_dev)
         if (f)
             fclose(f);
         g_night_loaded = 1;
-        /* Re-assert the last day/night state: after a mediad restart the IR
-         * LEDs are still latched on, and believing "day" read that IR-lit
-         * scene as daylight and clicked the filter day->night (2026-09-27);
-         * after a reboot this restores night straight away. */
+        /* Re-assert the saved day/night state: the IR LEDs survive a restart,
+         * and an IR-lit scene would otherwise read as daylight. */
         if (ir == 1) {
             daynight_apply(1);
             fprintf(stderr, "mediad: restored ir_cut=1 (night)\n");
@@ -1122,21 +1034,8 @@ void isp_control_stop(void)
     unlink(g_sock);
 }
 
-/* ---- config file + tiny built-in web UI ---------------------------------
- * mediad.conf (default /tmp/sd/unifi/etc/mediad.conf, override MEDIAD_CONF):
- * key=value lines where key is any control key (see `mediad_ctl list`) and the
- * value is its raw range. Applied once at startup through the same coalescing
- * worker. This is how the knobs Protect has no slider for (PLTM/wdr, aebias,
- * exposure, ...) get a persistent value.
- *
- * A key written here is PINNED: a later socket `set` for it is ACKed but
- * ignored, and `reset` leaves it alone, so Protect's connect-time re-assert
- * (e.g. enable3dnr=1) cannot undo it. Use `pin_<key>=<value>` to set a value at
- * boot without pinning.
- *
- *   webui=1        serve the slider UI below (all controls)
- *   webui_port=8099
- * ------------------------------------------------------------------------- */
+/* mediad.conf (key=value, pinned; pin_key=value unpinned) and the optional
+ * built-in slider page (webui=1, webui_port, default 8099). */
 static int g_webui_fd = -1;
 static pthread_t g_webui_tid;
 static volatile int g_webui_run;
@@ -1268,10 +1167,8 @@ int isp_control_load_config(const char *path)
         if (!strcmp(k, "webui")) { webui = atoi(v); continue; }
         if (!strcmp(k, "webui_port")) { port = atoi(v); continue; }
         {
-            /* A plain `key=value` is PINNED: it is applied at boot and then
-             * protected from socket sets (see the `set` handler) and skipped by
-             * `reset`, so a Protect connect cannot overwrite it. A plain
-             * `pin_key=value` sets the same value without pinning. */
+            /* `key=value` is pinned (socket sets ignored, `reset` skips it);
+             * `pin_key=value` sets it without pinning. */
             const struct ctl *c;
             const char *ck = k;
             int pin = 1;

@@ -1,16 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * mediad_ctl.c - tiny client for mediad's ISP control socket (isp_control.c).
- *
- * Lets us set/get picture controls on-device without the Go client running:
- *   mediad_ctl set wdr 64
- *   mediad_ctl get saturation
- *   mediad_ctl list
- *   mediad_ctl reset
- *
- * Socket path is MEDIAD_CTL_SOCK or /tmp/mediad_ctl.sock.
- */
+/* mediad_ctl.c - client for mediad's control socket (MEDIAD_CTL_SOCK, default
+ * /tmp/mediad_ctl.sock), e.g. `mediad_ctl set saturation 60`, `mediad_ctl list`. */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>

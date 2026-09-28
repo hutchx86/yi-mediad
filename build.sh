@@ -1,34 +1,38 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
-#
-# build.sh - fetch and install everything needed to build `mediad`.
-#
-# Our own source is in work/media_daemon/. This script brings in the third-party
-# pieces the build links (see NOTICE): the musl cross toolchain, the Allwinner
-# V833 SDK (which also carries the ISP-3A / hardware-encoder / AAC prebuilts),
-# the Melis-RTOS ISP algorithm archive used by the deploy (ALGO_RTOS) build, and
-# a link-time libasound.so. It lands in ./repos/ and
-# work/media_daemon/prebuilt/, both gitignored.
-#
-# Note on licensing: the fetched Allwinner binaries (ISP 3A, encoder engine, AAC)
-# are closed-source blobs with no license grant. They are acquired here for
-# interoperability; they are not redistributed by this repository. See NOTICE.
-#
-# Usage:
-#   ./build.sh [-h] [--repos DIR] [--build]
-# Env:
-#   ASOUND_LIB=/path/to/libasound.so   skip the alsa-lib build and use this file
-#   SDK_REF=<git ref>                  SDK commit/branch (default: pinned below)
-#   TC_REF=<git ref>                   toolchain commit/branch (default: pinned)
+
+# build.sh - fetch the third-party build inputs into ./repos and
+# work/media_daemon/prebuilt (both gitignored). ./build.sh -h for usage.
 set -eu
+
+usage() {
+    cat <<'EOF'
+Usage: ./build.sh [-h] [--repos DIR] [--build]
+
+Fetches the musl cross toolchain, the Allwinner V833 SDK (sparse), FAAC, the
+Melis-RTOS ISP algorithm archive and a link-time libasound.so, and initialises
+the ./freewinner submodule when the checkout has one.
+
+The default (deploy) build links no SDK or archive object: its ISP, encoder,
+AAC and middleware come from freewinner/freecodec, and the RTOS archive is
+reduced to an empty one. The SDK serves the vendor comparison builds only.
+Nothing fetched is redistributed; see NOTICE.
+
+Env:
+  ASOUND_LIB=/path/to/libasound.so   skip the alsa-lib build and use this file
+  SDK_REF=<git ref>                  SDK commit/branch (default: pinned)
+  TC_REF=<git ref>                   toolchain commit/branch (default: pinned)
+  FAAC_REF=<git ref>                 FAAC commit (default: pinned)
+EOF
+}
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DEPS="$REPO_ROOT/repos"
 PREBUILT="$REPO_ROOT/work/media_daemon/prebuilt"
 PATCHES="$REPO_ROOT/work/media_daemon/patches"
 
-# Pinned refs the tree is known to build against (verified 2026-09-15).
+# Pinned refs the tree is known to build against.
 TC_REPO="https://github.com/lindenis-org/lindenis-v536-prebuilt.git"
 TC_REF="${TC_REF:-2f0d7ef75aff64b7f6d008319b6490c3dc944288}"
 SDK_REPO="https://github.com/lindenis-org/lindenis-v833-softwinner.git"
@@ -41,7 +45,7 @@ ALSA_TARBALL="https://www.alsa-project.org/files/pub/lib/alsa-lib-$ALSA_VER.tar.
 DO_BUILD=no
 while [ $# -gt 0 ]; do
     case "$1" in
-        -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) usage; exit 0 ;;
         --repos) shift; DEPS="$1" ;;
         --build) DO_BUILD=yes ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -59,10 +63,8 @@ for t in git curl make python3 patch tar; do
 done
 mkdir -p "$DEPS" "$PREBUILT"
 
-# freewinner (clean-room ISP + codec) is a git submodule at ./freewinner, pinned
-# to the commit this tree was built against; a plain `git clone` leaves it
-# empty. Without .gitmodules (a development checkout) the Makefile uses the
-# sibling workspace instead.
+# The ./freewinner submodule, when this checkout has one; otherwise the Makefile
+# uses a sibling freewinner checkout.
 if [ -f "$REPO_ROOT/.gitmodules" ] && [ ! -f "$REPO_ROOT/freewinner/isp/Makefile" ]; then
     say "freewinner submodule"
     git -C "$REPO_ROOT" submodule update --init freewinner
@@ -94,14 +96,14 @@ fi
 [ -d "$SDK_DIR/eyesee-mpp/middleware/sun8iw19p1/media" ] || \
     die "SDK middleware missing at $SDK_DIR/eyesee-mpp/middleware/sun8iw19p1/media"
 
-say "SDK patch: v833-rtos-algo-ctx-lock (needed by the ALGO_RTOS build)"
+say "SDK patch: v833-rtos-algo-ctx-lock (vendor comparison builds)"
 ISP_MANAGE="$SDK_DIR/eyesee-mpp/middleware/sun8iw19p1/media/LIBRARY/libisp/include/isp_manage.h"
 if grep -q "_ctx_lock_pad" "$ISP_MANAGE" 2>/dev/null; then
     echo "  already applied"
 elif patch -p1 -d "$SDK_DIR" --forward < "$PATCHES/v833-rtos-algo-ctx-lock.patch"; then
     echo "  applied"
 else
-    echo "  WARNING: patch did not apply; the ALGO_RTOS build will likely fail"
+    echo "  WARNING: patch did not apply; vendor comparison builds may fail"
 fi
 
 say "FAAC source (freecodec AAC backend) -> $DEPS/faac"
@@ -132,9 +134,7 @@ elif [ -n "${ASOUND_LIB:-}" ]; then
     cp "$ASOUND_LIB" "$PREBUILT/libasound.so"
     echo "  copied from ASOUND_LIB ($ASOUND_LIB)"
 else
-    # Build alsa-lib for arm-musl; used only at link time - the camera ships its
-    # own libasound.so.2 at runtime. (Set ASOUND_LIB= to skip this and use the
-    # device's own library instead.)
+    # Link-time only: the camera's own libasound.so.2 is used at runtime.
     echo "  building alsa-lib $ALSA_VER (needs a host toolchain; ~1 min)"
     ALSA_DIR="$DEPS/alsa-lib"
     P=arm-openwrt-linux-muslgnueabi
@@ -166,8 +166,8 @@ echo "  SDK       : $SDK_DIR"
 echo "  prebuilt  : $PREBUILT"
 echo
 echo "Build:"
-echo "  make -C work/media_daemon"
-echo "  make -C work/media_daemon BUILD=build-rtos-v TARGET=mediad_rtos_v ALGO_RTOS=1 FREECODEC_H264=1 FREECODEC_FENC=1 FREECODEC_FISP=1 FREECODEC_FCAP=1 FREECODEC_HEADERS=1   # clean deploy build"
+echo "  make -C work/media_daemon     # deploy build -> work/media_daemon/mediad"
+echo "  ./package.sh                   # deploy build + SD-card package -> dist/"
 
 if [ "$DO_BUILD" = yes ]; then
     say "building (default target)"

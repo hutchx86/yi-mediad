@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * mediad_venc.c - our H.264 encoder channel (spec/mediad_venc.md).
- *
- * Turns captured frames into an H.264 elementary stream using the public
- * libcedarc vencoder API, replacing the Allwinner VENC middleware
- * (mpi_venc.c + VideoEnc_Component.c). Written from the spec and public SDK
- * headers only. The capture frame is fed zero-copy by physical address: the VI
- * frame already carries the PA and the encoder consumes PA directly.
- */
+/* mediad_venc.c - our H.264 encoder channel (spec/mediad_venc.md) over the
+ * libcedarc vencoder API. Capture frames are fed zero-copy by physical address. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,8 +28,7 @@ static uint64_t now_us(void)
 }
 
 /* cfg->profile is 0 baseline / 1 main / 2 high; an already-valid profile_idc
- * (66/77/100) is passed through. The old direct cast turned the default 1 into
- * profile_idc 1, which is not a valid H.264 profile. */
+ * (66/77/100) is passed through. */
 static fwm_venc_h264_profile_e map_profile(int p)
 {
     switch (p) {
@@ -61,18 +53,14 @@ static void apply_defaults(struct mediad_venc *v, const struct mediad_venc_cfg *
     h264.coding_mode = FWM_VENC_CODING_FRAME;
     h264.profile_level.profile = map_profile(cfg->profile);
     h264.profile_level.level = FWM_VENC_H264_LEVEL32;  /* stock rmm: level 32 */
-    /* CABAC: the vendor middleware enables it (VideoEnc_Component.c:1417) and it
-     * is ~10-15% more efficient than CAVLC at the same bitrate - visible on
-     * motion. Baseline cannot carry it. */
+    /* CABAC (~10-15% smaller than CAVLC); Baseline cannot carry it. */
     h264.cabac_en =
         (h264.profile_level.profile == FWM_VENC_H264_PROFILE_BASELINE) ? 0 : 1;
     h264.frame_rate = fps;
     h264.source_frame_rate = fps;
     h264.bitrate = bitrate;
-    /* Defaults mirror stock rmm's own encoder dump (rmm_stdout.log:158/173),
-     * not the SDK defaults: profile 100 High, level 32, idr_period 40,
-     * init_qp 37, i/p_qp[10~40], mode 1 = FWM_VENC_RC_VBR, vbr maxBitRate +
-     * movingTh 20 / quality 10. */
+    /* Defaults are stock rmm's encoder settings: High, level 32, IDR period 40,
+     * init QP 37, QP 10..40, VBR (moving threshold 20, quality 10). */
     h264.key_interval_max = cfg->gop > 0 ? cfg->gop : 40;
     h264.qp_range.qp_min = cfg->min_qp > 0 ? cfg->min_qp : 10;
     h264.qp_range.qp_max = cfg->max_qp > 0 ? cfg->max_qp : 40;
@@ -111,23 +99,15 @@ static void apply_defaults(struct mediad_venc *v, const struct mediad_venc_cfg *
     VideoEncSetParameter(v->enc, FWM_VENC_PARAM_I_FILTER, &ifilter);
     VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FAST_ENCODE, &fastenc);
     {
-        /* Encoder-side 3D noise filter (distinct from the ISP's tdf). Stock rmm
-         * enables it at level 3 (rmm_stdout.log "3d_filter:3"), but that smears
-         * moving objects, so the default is off; MEDIAD_3DNR / cfg->nr3d can
-         * re-enable it 0-3. */
+        /* Encoder 3D filter (not the ISP's tdf). Off by default: stock's level 3
+         * smears motion. */
         unsigned char nr3d = (unsigned char)(cfg->nr3d < 0 ? 0 : cfg->nr3d);
         VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FILTER_3D, &nr3d);
     }
 }
 
-/*
- * Pre-init VBV sizing, mirroring the vendor middleware's setVbvBufferConfig()
- * (VideoEnc_Component.c:440-553).  The H264 device sizes its internal bitstream
- * buffer from these two values at VideoEncInit time; without them a second
- * channel's init can wedge.  nMinSize = W*H*3/2, threshold = W*H (capped 7 MB),
- * vbv = bitrate-KB * 2 s / 8 + threshold, floored at nMinSize, aligned 1024.
- * (Stock uses a 4 s window; 2 s halves that dmabuf and the peak buffering.)
- */
+/* Pre-init VBV sizing (without it a second channel's init can wedge): a 2 s
+ * window plus a W*H threshold (max 7 MB), at least W*H*3/2, 1 KB aligned. */
 static void apply_vbv(struct mediad_venc *v, const struct mediad_venc_cfg *cfg)
 {
     int bitrate_kb = (cfg->bitrate > 0 ? cfg->bitrate : 1000000) >> 10;
@@ -182,21 +162,15 @@ struct mediad_venc *mediad_venc_open(const struct mediad_venc_cfg *cfg)
     apply_vbv(v, cfg);
 
     if (VideoEncInit(v->enc, &(fwm_venc_base_config_t){
-            /* With an input window the encoder reads pic_w x pic_h at
-             * (crop_x, crop_y) of the stride-wide capture: input == output
-             * size, so no scaler (a larger input than output stalled r35gb). */
+            /* Input window: pic_w x pic_h at (crop_x, crop_y), input == output,
+             * so no scaler (a larger input than output stalls the encoder). */
             .input_width = (unsigned)(v->crop_x >= 0 ? cfg->pic_w : cfg->src_w),
             .input_height = (unsigned)(v->crop_x >= 0 ? cfg->pic_h : cfg->src_h),
             .input_stride = (unsigned)v->stride,
             .output_width = (unsigned)cfg->pic_w,
             .output_height = (unsigned)cfg->pic_h,
-            /* The VI captures Allwinner LBC 2.5X (see main.c's V4L2 attr),
-             * matching stock rmm's venc channels (VeAttr.PixelFormat =
-             * MM_PIXEL_FORMAT_YUV_AW_LBC_2_5X); the middleware maps that to
-             * FWM_VENC_PIXEL_LBC and sets the lossy-compress flag. LBC frame
-             * buffers are ~half an uncompressed NV21 frame. (Handing the
-             * encoder NV21/YUV420SP here instead swaps U/V and inverts the
-             * colour - see r35gb 2026-09-19.) */
+            /* Must match the capture format (LBC 2.5X, or YVU420SP for NV21);
+             * a mismatch corrupts the colour. */
             .input_format = mediad_capture_nv21() ? FWM_VENC_PIXEL_YVU420SP
                                                   : FWM_VENC_PIXEL_LBC,
             .lbc_lossy_2_5x_en = mediad_capture_nv21() ? 0 : 1,
@@ -295,9 +269,8 @@ int mediad_venc_encode(struct mediad_venc *v, const struct cov1 *cov,
     if (cov->phyY == NULL)
         return -1;
 
-    /* Zero-copy: hand the captured frame's physical addresses to the encoder.
-     * AddInputBuffer copies the descriptor into its own input list, so the
-     * buffer does not need to come from an encoder-side allocation. */
+    /* Zero-copy: AddInputBuffer copies only the descriptor, so the capture
+     * buffer's physical addresses can be handed over directly. */
     memset(&in, 0, sizeof(in));
     in.luma_phys = cov->phyY;
     in.chroma_phys = cov->phyC;
@@ -322,10 +295,8 @@ int mediad_venc_encode(struct mediad_venc *v, const struct cov1 *cov,
         t1 = now_us();
         r = VideoEncodeOneFrame(v->enc);
         t2 = now_us();
-        /* Drain the used-input slot even when the encode failed: returning early
-         * leaves it occupied, so the FBM pool empties one buffer per failure and
-         * every later AddInputBuffer fails ("all input buffer is used by
-         * encoder"). This is the cascade seen after the first PutBits error. */
+        /* Drain the used-input slot even on failure; otherwise the pool loses
+         * one buffer per error until every AddInputBuffer fails. */
         (void)AlreadyUsedInputBuffer(v->enc, &in);
         t3 = now_us();
         if (r != 0)
@@ -347,7 +318,7 @@ void mediad_venc_release(struct mediad_venc *v, const struct mediad_venc_frame *
     if (v == NULL || v->enc == NULL || f == NULL)
         return;
     /* Hand the descriptor back field-for-field: the encoder frees the slot by
-     * id/flags, so a zeroed descriptor (the old code) never releases it. */
+     * id/flags, so a zeroed descriptor never releases it. */
     memset(&ob, 0, sizeof(ob));
     ob.id = f->id;
     ob.pts = (long long)f->pts;
@@ -404,15 +375,8 @@ int mediad_venc_set_filter3d(struct mediad_venc *v, int strength)
     return VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FILTER_3D_STRENGTH, &s) == 0 ? 0 : -1;
 }
 
-/*
- * Burned-in overlay. The vendor middleware's own OSD path ends here too: it
- * packs its regions into a fwm_venc_overlay_t and calls
- * VideoEncSetParameter(pCedarV, FWM_VENC_PARAM_OVERLAY, ...) - see
- * media/component/VideoEnc_Component.c:3197 and media/mpi_venc.c:2998
- * (configVencOsd). libvenc_codec.so, the encoder we link, implements the index.
- * ARGB1555 with extra_alpha_flag=0 keeps the bitmap's per-pixel alpha bit, so a
- * 0 alpha bit stays transparent and only the drawn pixels are burned in.
- */
+/* Burned-in overlay via FWM_VENC_PARAM_OVERLAY. ARGB1555 with extra_alpha_flag=0
+ * keeps the per-pixel alpha bit: only drawn pixels are burned in. */
 int mediad_venc_set_overlay(struct mediad_venc *v,
                             const struct mediad_venc_ovl_blk *blks, int n)
 {

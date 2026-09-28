@@ -24,6 +24,7 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  *
  */
+/* Modified by yi-mediad (2026): <sys/poll.h> -> <poll.h>, for musl. */
 
 #ifndef __ASOUNDLIB_H
 #define __ASOUNDLIB_H

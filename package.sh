@@ -1,12 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
-#
-# package.sh - build mediad and assemble the SD-card package into dist/.
-#
-# The result is an overlay for an existing yi-protect SD card: it adds mediad
-# plus the scripts that make it run in place of the stock `rmm`. Copy dist/ to
-# the card's /tmp/sd/unifi (or run dist/install-mediad.sh on the device).
+
+# package.sh - build mediad and assemble dist/, an overlay for an existing
+# yi-protect SD card (see package/README.md).
 set -eu
 
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -20,25 +17,8 @@ cd "$REPO"
 TC=repos/lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain/bin
 STRIP="$TC/arm-openwrt-linux-muslgnueabi-strip"
 
-# Deploy build: clean-room ISP tier (ALGO_RTOS=1), clean-room H.264 encoder
-# (FREECODEC_H264=1, which also selects the clean-room libvenc_base.so), and the
-# clean-room MPP middleware (FENC/FISP/FCAP/HEADERS=1).  The last four drop every
-# vendor eyesee-mpp object and header from the build, so the shipped binary is
-# ours alone.  Needs the freewinner sibling checkout (see
-# work/media_daemon/Makefile, SIBLINGS).
-#
-# Reproducible build stamp: main.c prints __DATE__/__TIME__ unless overridden,
-# so without this every build differs by the compile clock (measured: two clean
-# builds differed by exactly 2 bytes in .data).
-#
-# The stamp is derived from the CONTENT of the inputs that build the artifact,
-# not from the commit that happens to be HEAD -- a commit-date stamp is
-# self-invalidating (committing the build changes the stamp and so changes the
-# artifact).  Hash the build inputs only, so editing an unrelated doc (or a
-# comment in this script outside these paths) cannot change the artifact.
-#
-# Space-free: a value with spaces does not survive the shell->make->shell trip
-# through EXTRA_CFLAGS.
+# Reproducible build stamp: a hash of the build inputs' content (not HEAD), so
+# unrelated edits leave the binary unchanged. Space-free for EXTRA_CFLAGS.
 REV=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo dev)
 STAMP_INPUTS="work/media_daemon package package.sh"
 SRC_HASH=$(git -C "$REPO" ls-files -z -- $STAMP_INPUTS 2>/dev/null \
@@ -47,9 +27,8 @@ SRC_HASH=$(git -C "$REPO" ls-files -z -- $STAMP_INPUTS 2>/dev/null \
 STAMP="src-$SRC_HASH"
 
 echo "== building mediad (clean build: ALGO_RTOS=1 FREECODEC_H264=1 FENC/FISP/FCAP/HEADERS=1; rev $REV stamp $STAMP)"
-# -W main.c: the stamp is a -D flag, which make's dependency tracking cannot
-# see, so recompile main.c (the only user) every time; otherwise an old stamp
-# survives and dist/'s binary and SOURCE.txt disagree.
+# The deploy flags (also the Makefile defaults). -W main.c: make cannot see a
+# changed -D stamp, so always recompile its only user.
 make -C work/media_daemon -W main.c BUILD=build-rtos-v TARGET=mediad_rtos_v ALGO_RTOS=1 \
     FREECODEC_H264=1 FREECODEC_FENC=1 FREECODEC_FISP=1 FREECODEC_FCAP=1 FREECODEC_HEADERS=1 \
     EXTRA_CFLAGS="-DMEDIAD_BUILD_STAMP='\"$STAMP\"'"
@@ -66,8 +45,7 @@ cp package/unifi/etc/mediad.*.env dist/unifi/etc/
 cp package/unifi/script/mediad.sh dist/unifi/script/mediad.sh
 cp package/install.sh dist/install-mediad.sh
 cp package/README.md dist/README.md
-# Licence notices that must travel with the binaries (mediad embeds the
-# Terminus OSD font data: SIL OFL 1.1 requires its licence alongside).
+# Licences that travel with the binaries (the OSD font is SIL OFL 1.1).
 mkdir -p dist/licenses
 cp LICENSE LICENSE-EXCEPTION NOTICE dist/licenses/
 cp work/media_daemon/fonts/OFL-Terminus.txt dist/licenses/OFL-Terminus.txt
@@ -106,9 +84,8 @@ Rebuild with ./build.sh (fetches the toolchain and FAAC) then ./package.sh.
 The licence texts are in this directory.
 SRC
 
-# libvenc_base.so (clean-room, freewinner codec/src/base) is the only shared
-# library mediad needs besides the camera's own C/C++ runtime and ALSA; it is
-# found through the $ORIGIN/../lib rpath. No vendor encoder libraries ship.
+# libvenc_base.so (clean-room) is mediad's only shared library besides the
+# camera's C/C++ runtime and ALSA; found via the $ORIGIN/../lib rpath.
 cp work/media_daemon/build-rtos-v/libvenc_base.so dist/unifi/lib/libvenc_base.so
 "$STRIP" dist/unifi/lib/libvenc_base.so 2>/dev/null || true
 # vin_crop_shim.so: LD_PRELOAD VIPP crop (VIDIOC_S_SELECTION) for models whose

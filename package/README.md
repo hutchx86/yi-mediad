@@ -1,65 +1,78 @@
 # mediad SD-card package
 
 An overlay for an existing **yi-protect** SD card that installs `mediad` and
-makes it run in place of the stock `rmm` encoder. Nothing else is needed:
-`mediad` publishes the same `/dev/shm/fshare_frame_buf` ring the stock `rmm`
-does, so the yi-protect bridge/client stack is untouched.
+makes it run in place of the stock `rmm` encoder. `mediad` publishes the same
+`/dev/shm/fshare_frame_buf` ring the stock `rmm` does, so the yi-protect
+bridge/client stack is untouched.
 
-## Build the package
+Supported models: `y623` (Yi Pro 2k), `h52ga` (Yi Dome Camera U), `r35gb`
+(Yi Dome Guard).
 
-From the repo root:
+## Contents
 
-```
-./package.sh          # -> dist/
-```
-
-`dist/` is the deliverable:
+Built from the repo root with `./build.sh && ./package.sh`:
 
 ```
 dist/
-  install-mediad.sh          # installer (runs on the device / a mounted card)
-  README.md
-  unifi/
-    bin/mediad               # stripped, ARM (the deploy build)
-    etc/mediad.conf          # default settings (optional at runtime)
-    script/mediad.sh         # start/stop/restart/status
-    lib/libvenc_base.so      # encoder support library ($ORIGIN/../lib)
+  install-mediad.sh          installer
+  README.md                  this file
+  licenses/                  LICENSE, LICENSE-EXCEPTION, NOTICE, OFL-Terminus.txt,
+                             COPYING-FAAC, SOURCE.txt (exact source revisions)
+  unifi/bin/mediad           stripped ARM binary (the deploy build)
+  unifi/etc/mediad.conf      default settings (installed only if absent)
+  unifi/etc/mediad.r35gb.env per-model settings (always refreshed)
+  unifi/script/mediad.sh     start/stop/restart/status/candidate
+  unifi/lib/libvenc_base.so  clean-room encoder support (found via $ORIGIN/../lib)
+  unifi/lib/vin_crop_shim.so capture crop, preloaded by mediad.r35gb.env
 ```
 
-## Install onto a yi-protect SD card
+## Install
 
-Copy `dist/` to the card and run the installer (default target `/tmp/sd`):
-
-```
-scp -r dist/* <camera>:/tmp/sd/          # or copy on the bench
-/tmp/sd/unifi/install-mediad.sh          # or: install-mediad.sh /path/to/sd
-```
+1. Copy `dist/` to the card as its own folder, e.g.
+   `scp -r dist root@<camera>:/tmp/sd/mediad-dist` (or copy it onto the card on
+   a PC). Do not copy it over the card's `unifi/`.
+2. On the camera: `sh /tmp/sd/mediad-dist/install-mediad.sh` (the SD root
+   defaults to `/tmp/sd`; pass another as the first argument).
+3. Reboot (or `/tmp/sd/unifi/script/mediad.sh start` with the stock `rmm`
+   stopped).
 
 The installer:
 
-1. copies `mediad`, `mediad.conf`, `mediad.sh` and the shared library
-   (`libvenc_base.so`, our clean-room encoder framework) into
-   `unifi/{bin,etc,script,lib}`;
+1. copies `mediad`, `mediad.sh`, the shared libraries and the per-model
+   `mediad.<model>.env` files into `unifi/{bin,script,lib,etc}`, and
+   `mediad.conf` only if the card has none;
 2. sets `IS_MEDIAD=yes` in `unifi/etc/unifi.cfg` (the client then forwards
    Protect's picture controls to mediad's control socket);
 3. edits `unifi/script/init.sh` to launch `mediad.sh start` where it launched
-   the stock `./rmm` (backs up to `init.sh.pre-mediad`);
+   the stock `./rmm` (backup: `init.sh.pre-mediad`);
 4. edits `unifi/script/watchdog.sh` to watch `mediad` instead of `./rmm`
-   (backs up to `watchdog.sh.pre-mediad`).
+   (backup: `watchdog.sh.pre-mediad`).
 
-If either script differs from what it expects, it says so and leaves it alone —
-make that one-line change by hand (the installer prints the exact line).
+If either script differs from what it expects, it says so and leaves it alone;
+make that one-line change by hand (the installer prints the exact line). If
+yi-protect is already mediad-aware, it only copies files.
 
-Then reboot (or `unifi/script/mediad.sh start`).
+## Running
 
-## Notes
+- `mediad.sh start` sources `unifi/etc/mediad.env` (optional `export KEY=value`
+  knobs, see the repo's `docs/env.md`) and then `mediad.<model>.env`, and logs
+  each start to `/tmp/sd/mediad-pass-<n>.log`.
+- **Rollback guard:** the first start that produces frames saves
+  `unifi/bin/mediad.known-good`. If a later binary exits before producing
+  frames, `mediad.sh` restores the known-good one; a boot latch
+  (`unifi/.boot-pending`) does the same on the next boot if the camera hung.
+  `mediad.sh candidate <file>` installs a new binary under the same guard.
+  `MEDIAD_NO_ROLLBACK=1` disables it.
+- Picture settings: yi-protect's settings page (`http://<camera>/`, port
+  `WEBUI_PORT` in `unifi.cfg`), Protect, or `unifi/etc/mediad.conf`, whose
+  `key=value` lines are pinned against Protect's connect-time re-assert.
+- The stock `rmm` stays on the camera; the installer only changes what is
+  launched. Restore the `.pre-mediad` backups to go back.
 
-- `mediad` reads `unifi/etc/mediad.conf` if present; otherwise it uses defaults
-  matching stock `rmm`. All controls are also settable at runtime over
-  `/tmp/mediad_ctl.sock` (`mediad_ctl`, or Protect via the client).
-- The stock `rmm` is left in place; the installer only changes what is launched.
-- The `package.sh` deploy build compiles no vendor source and includes no vendor
-  header: ISP 3A/register, AAC, H.264, the VENC/ISP/capture middleware and the
-  daemon's own interface headers are all clean-room (`freewinner`/`freecodec`,
-  AGPL-3.0-only). The build fetches the SDK but no vendor object reaches the
-  binary — see the repo's `LICENSE`/`NOTICE`.
+## Licences
+
+`mediad` and the clean-room freewinner/freecodec code it links are
+AGPL-3.0-only (with the section 7 permission in `LICENSE-EXCEPTION`); FAAC is
+LGPL-2.1-or-later; the OSD font is Terminus (SIL OFL 1.1). No vendor source,
+header or object is compiled into the binary. `licenses/SOURCE.txt` names the
+exact source revisions.

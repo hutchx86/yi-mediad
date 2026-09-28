@@ -1,28 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * main.c - standalone VI(capture) -> ISP -> VENC (H.264 hw encode) -> fshare
- * ring daemon. This is mediad, the drop-in stock-rmm replacement.
- *
- * Structure mirrors stock rmm's own MPP setup:
- * TWO separate VI devices, each with its own capture resolution and its own
- * single VENC channel - not two virtual channels on one vipp (that deadlocks
- * the VI refcount: VENC GetStream returns EN_ERR_BUF_EMPTY and the vipp runs
- * out of buffers).
- *
- *   vi_dev 0 @2304x1296 -> VENC 0 -> HIGH (0x0400)   [1920x1080 on h52ga]
- *   vi_dev 1 @ 640x360  -> VENC 1 -> LOW  (0x0800)
- *
- * unifi_flv_bridge/FlvPush aliases MED to the LOW frames, so Protect's live
- * view (video3) is covered by the single LOW encode. Stock order is reproduced:
- * both vipps set up, both virchn created, both VENCs created/bound/StartRecvPic,
- * and only THEN both virchn enabled. Ring contract and helper: fshare.h/.c.
- *
- * Burned-in OSD (date/name/logo/bitrate) is pushed to each encoder's overlay
- * engine by osd.c; it is applied to every encoded frame, not composited in
- * software. Runs until SIGINT/SIGTERM; exits on sustained VENC failure so it
- * can't wedge the box.
- */
+/* main.c - mediad: VI capture -> ISP -> H.264 encode -> fshare ring.
+ * Two VI devices, one encoder each (vi_dev 0 -> HIGH, vi_dev 1 -> LOW); two
+ * virtual channels on one vipp deadlock the VI refcount. Env: docs/env.md. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,9 +42,8 @@
 #define SRC_FPS 20
 #define MAX_GETSTREAM_FAILS 20  /* exit rather than wedge holding ion buffers */
 #define MAX_VENC_FAILS      10  /* encoder input-pool errors before we exit */
-/* Encoder-input stalls surface as PTS jumps. Force a keyframe so the decoder
- * and the controller's recorder resync at the resume point instead of smearing
- * or rejecting frames until the next scheduled GOP. */
+/* An input PTS gap larger than this forces an IDR so the decoder and the
+ * controller's recorder resync at the resume point. */
 #define MEDIAD_INPUT_GAP_US 500000u
 
 #define STATS_EVERY_N_FRAMES (SRC_FPS * 60) /* one heartbeat line per minute */
@@ -90,9 +69,7 @@ typedef struct {
 } media_chan;
 
 static media_chan g_chans[] = {
-    /* HIGH bitrate default 2.8 Mbps (Protect's own target; the runtime value
-     * comes from mediad.bitrate / Protect and is clamped by the isp_control
-     * table - see isp_control.c). */
+    /* Default bitrates; runtime values come from mediad.bitrate / Protect. */
     { "high", 0, 0, 0, FSHARE_TYPE_HIGH, 2304, 1296, 2304, 1296, 2800000, NULL, 0, 0, 0 },
     { "low",  1, 0, 1, FSHARE_TYPE_LOW,   640,  360,  640,  360,  700000, NULL, 0, 0, 0 },
 };
@@ -101,9 +78,7 @@ static media_chan g_chans[] = {
 static volatile sig_atomic_t g_stop;
 static volatile uint32_t g_last_frame_ms;
 
-/* Capture/encode fps. SRC_FPS is the stock 20; MEDIAD_FPS overrides it at
- * startup so the single A7 can be throttled when 20 fps at a high bitrate runs
- * out of headroom (visible as lag + blockiness that appear after a while). */
+/* Encode fps; MEDIAD_FPS lowers it when the single A7 runs out of headroom. */
 static int g_fps = SRC_FPS;
 
 /* Monotonic microseconds, for per-call timing in the stream thread. */
@@ -115,12 +90,8 @@ static uint64_t now_us(void)
     return (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
 }
 
-/*
- * Pin mediad's pages in RAM so the kernel can never swap it out.  The default
- * RLIMIT_MEMLOCK is 64 KB, so raise it first.  MCL_CURRENT locks everything
- * already mapped (the VI/encoder/ion buffers and the heap) and MCL_FUTURE keeps
- * later allocations resident too.  MEDIAD_NO_MLOCK=1 disables it.
- */
+/* Pin mediad in RAM (MCL_CURRENT|MCL_FUTURE); the default RLIMIT_MEMLOCK is
+ * only 64 KB, so raise it first. */
 static void lock_memory(void)
 {
     struct rlimit rl;
@@ -141,32 +112,15 @@ static void lock_memory(void)
         fprintf(stderr, "mediad: memory locked (never swapped)\n");
 }
 
-/* Stock rmm uses two vipps: HIGH on vi_dev 0, LOW on vi_dev 1. The earlier
- * second-vipp SIGFPE was the vendor test param (wdr_mode/capturemode), which we
- * no longer import, so both run. Set MEDIAD_LOW=0 for HIGH-only (bisection). */
+/* MEDIAD_LOW=0 runs HIGH only. */
 static int active_chans(void)
 {
     const char *e = getenv("MEDIAD_LOW");
     return (e && e[0] == '0') ? 1 : NCHAN;
 }
 
-/* HIGH-channel geometry, keyed on the LIVE SENSOR NAME (read from the V4L2
- * subdev sysfs - the same signal the vendor tuning extraction uses), NOT the
- * model string, so a mislabeled model_suffix cannot pick the wrong mode.
- *
- * Geometry is a property of the SENSOR, not the model: several models can share
- * one sensor (r35gb and h52ga both use gc2053_mipi), so the model is never
- * inferred from the sensor. (Mounting orientation is the per-model bit - see
- * g_caps below.)
- *
- * Known sensor -> its tested capture/encode geometry (table below):
- * gc3003_mipi -> 2304x1296; gc2053_mipi -> 1936x1096 capture, 1920x1080 encode
- * (stock's own H.264 SPS). Unknown sensor -> best effort: request a 16:9
- * target; vi_start() reads back the size the driver actually negotiated
- * (AW_MPI_VI_GetVippAttr) and walks a candidate list if it is rejected.
- * MEDIAD_SENSOR overrides the detected name; MEDIAD_CAP_* and MEDIAD_PIC_*
- * override the geometry (bring-up). wdr is the known vendor profile
- * (MEDIAD_WDR overrides); LOW/vi_dev 1 stays 640x360. */
+/* HIGH-channel geometry is keyed on the live sensor name (V4L2 subdev sysfs),
+ * never the model: models share sensors. Unknown sensors get a 16:9 best effort. */
 typedef struct {
     const char *sensor;
     int cap_w, cap_h;   /* VI capture */
@@ -253,11 +207,8 @@ static void apply_geometry(void)
             cap_w, cap_h, pic_w, pic_h);
 }
 
-/* Mounting orientation is a per-MODEL property, not a sensor property: r35gb
- * uses the same gc2053_mipi as h52ga but its sensor is mounted rotated 180
- * (mirror + flip), so raw frames come out upside-down. Keyed on the model
- * string (MEDIAD_MODEL, else the SD model_suffix). One row per model that needs
- * it; MEDIAD_MIRROR/MEDIAD_FLIP override. */
+/* Mounting orientation is per model (r35gb's gc2053 is mounted rotated 180),
+ * keyed on MEDIAD_MODEL or the SD model_suffix. */
 typedef struct {
     const char *model;
     int mirror, flip;
@@ -316,9 +267,8 @@ static void apply_capabilities(void)
             model[0] ? model : "(unknown)", g_mirror, g_flip);
 }
 
-/* Extract the vendor tuning before vi_start so the WDR flag (cfg_arr +84) is
- * known when the capture mode is chosen; parser_ini_info's later load is then a
- * no-op. Returns the vendor wdr (0 linear / 2 WDR), or -1 if unavailable. */
+/* Read the tuning's WDR flag before vi_start picks the capture mode.
+ * Returns 0 linear / 2 WDR, or -1 if unavailable. */
 static int load_vendor_profile(void)
 {
     const char *rmm;
@@ -327,26 +277,13 @@ static int load_vendor_profile(void)
         return -1;
     rmm = getenv("MEDIAD_RMM_PATH");
     if (!rmm) rmm = "/home/app/rmm";
-    /* Always scan rmm for the WDR flag - rmm_tuning_load (called later by
-     * parser_ini_info) may serve the on-SD cache and never touch rmm. */
+    /* Scan rmm itself: the later rmm_tuning_load may be served from the SD cache. */
     return rmm_tuning_probe_wdr(rmm, g_sensor);
 }
 
 #ifdef MEDIAD_ALGO_RTOS
-/* Install the camera's own libisp constant tables (AE/AWB/AFS/ISO/GTM/PLTM) into
- * the clean-room shims.  The shims latch their table pointers in
- * clean_<mod>_init(), called by isp_ctx_algo_init() during AW_MPI_ISP_Run(), so
- * this must run first.
- *
- * Cache-first: a bundle written on a previous boot is installed as-is and the
- * vendor `rmm` image is not read at all; only a missing/corrupt cache falls
- * back to locating the tables in `rmm`, which then (re)writes the bundle for
- * the next boot.
- *
- * Failure is NOT fatal: the shims keep their built-in pilot defaults and the
- * capture path still starts (degraded tuning).  MEDIAD_NO_RMM_TUNING disables
- * the whole feed (cache included); MEDIAD_TABLE_BUNDLE overrides the cache path
- * (empty string = never cache, pure locator). */
+/* Feed the camera's own 3A tables to the clean-room shims (SD cache first, else
+ * located in rmm); must precede AW_MPI_ISP_Run. Failure keeps shim defaults. */
 static void load_shim_tables(void)
 {
     const char *rmm, *bundle;
@@ -362,17 +299,13 @@ static void load_shim_tables(void)
                         "using shim defaults\n", rmm);
     else
         fprintf(stderr, "mediad: clean-shim tables installed (cache-first); "
-                        "pltm presets: %s\n", freeisp_shim_pltm_presets_status());
+                        "pltm presets: %s; ae out bias: %s\n",
+                freeisp_shim_pltm_presets_status(), freeisp_shim_ae_out_bias_status());
 }
 #endif
 
-/* Runtime encoder bitrate, from Protect's ChangeVideoSettings (forwarded by
- * goclient via mediad_ctl). Applied with our own VideoEncSetParameter
- * (FWM_VENC_PARAM_BITRATE). The value is persisted so a mediad restart cannot
- * silently drop it back to the 1.5 Mbps compile-time default: the controller
- * only re-sends it on connect / settings change, so the first restart after a
- * deploy used to halve the stream (visible compression artifacts, r35gb
- * 2026-09-19). Env MEDIAD_{HIGH,LOW}_BPS still wins. */
+/* Runtime bitrate from Protect, persisted because the controller re-sends it
+ * only on connect/change; a restart would otherwise fall back to the default. */
 #define MEDIAD_BITRATE_MIN 48000u
 #define MEDIAD_BITRATE_MAX 6000000u
 #define MEDIAD_BITRATE_FILE_DEFAULT "/tmp/sd/unifi/etc/mediad.bitrate"
@@ -437,9 +370,7 @@ int mediad_set_bitrate(const char *name, unsigned int bps)
     return -1;
 }
 
-/* Encoder 3D-filter strength (0 off .. 511, the hardware threshold), applied
- * to every channel; mediad.conf / the socket change it live. MEDIAD_3DNR still
- * sets the vendor level (0..3) at init. */
+/* Encoder 3D-filter strength (0 off .. 511 hardware threshold), all channels. */
 static int g_venc3d;
 
 int mediad_set_venc3d(int level)
@@ -468,10 +399,8 @@ unsigned int mediad_get_bitrate(const char *name)
     return 0;
 }
 
-/* Shutter exposure mode (Protect Auto / Frame Capture / Best Low Light) via
- * AW_MPI_VI_SetVippShutterTime. Lives here, not isp_control.c, because
- * VI_SHUTTIME_CFG_S carries enums and isp_control.c is compiled -fshort-enums
- * while the VI glue is 4-byte. mode: 0 auto, 1 preview (short), 2 night (long). */
+/* Shutter mode: 0 auto, 1 short, 2 long. Here, not in isp_control.c, because
+ * the VI struct has enums and isp_control.c is built -fshort-enums. */
 int mediad_set_shutter(int mode)
 {
     fwm_vi_shutter_cfg_t cfg;
@@ -493,10 +422,7 @@ static void on_signal(int sig)
     g_stop = 1;
 }
 
-/* Stock rmm keeps itself out of the OOM killer's path (init.sh sets -1000 for
- * it) so a snapshot's ~9 MB RSS doesn't take down the encoder. Do the same in
- * process: the GetStream-failure guard above still lets us exit cleanly rather
- * than wedge. */
+/* Same OOM exemption stock rmm gets from init.sh. */
 static void protect_from_oom(void)
 {
     int fd = open("/proc/self/oom_score_adj", O_WRONLY);
@@ -514,11 +440,8 @@ static uint32_t now_ms(void)
     return (uint32_t)((uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
-/* Publish one H.264 NAL, start code included. The ring stores Annex-B NALs with
- * their start codes (imggrabber feeds them straight to libavcodec; FlvPush
- * splits Annex-B itself), so the payload must not be stripped. SPS frames must
- * carry a 6-byte prefix - readers strip exactly 6 bytes whenever the SPS bit is
- * set, regardless of content, before seeing the start code. */
+/* Publish one Annex-B NAL with its start code. SPS entries carry a 6-byte
+ * prefix: readers strip 6 bytes whenever the SPS bit is set. */
 static void publish_nal(media_chan *ch, const unsigned char *nal, size_t n, uint32_t ts)
 {
     static const unsigned char sps_prefix[6] = { 0, 0, 0, 0, 0, 0 };
@@ -622,16 +545,12 @@ static void publish_pack(media_chan *ch, const fwm_venc_pack_t *pack)
     if (b)
         memcpy(ch->assemble + a, pack->addr1, b);
 
-    /* Presentation time: use the encoder's own PTS (microseconds -> ms) so the
-     * clock is a smooth media clock. Timestamping at publish time gave bursty
-     * deltas (69/13/13/11 ms) that made FlvPush declare 45->19 fps and caused
-     * controller jitter and drops. */
+    /* Encoder PTS, not publish time: publish-time stamps are bursty and make
+     * FlvPush misjudge the frame rate. */
     uint32_t ts = pack->pts ? (uint32_t)(pack->pts / 1000) : now_ms();
 
-    /* Stock rmm re-emits SPS+PPS with every IDR. The VENC GetStream output
-     * carries only the slice NALs, so without this the SPS/PPS published once
-     * at init age out of the ring and consumers that wait for an SPS to begin
-     * (imggrabber) spin forever. */
+    /* Re-emit SPS+PPS before every IDR, as stock rmm does; readers that wait
+     * for an SPS (imggrabber) would otherwise never start. */
     if (ch->spspps_len && has_idr(ch->assemble, total))
         publish_annexb(ch, ch->spspps, ch->spspps_len, ts);
 
@@ -639,9 +558,8 @@ static void publish_pack(media_chan *ch, const fwm_venc_pack_t *pack)
     g_last_frame_ms = now_ms();
 }
 
-/* Safety net: if the vendor pipeline wedges and stops producing frames, exit
- * rather than sit there holding ion memory (and, being OOM-protected, wedging
- * the whole box). The stock watchdog / our supervisor can restart us. */
+/* Exit after 15 s without frames rather than hold ion memory while wedged;
+ * the watchdog restarts us. */
 static void *watchdog_thread(void *arg)
 {
     (void)arg;
@@ -676,11 +594,7 @@ static void *ae_telemetry_thread(void *arg)
     return NULL;
 }
 
-/* Pull a VI capture frame, run it through our H.264 encoder, and publish the
- * bitstream. This is the vendor "VENC GetStream" thread rewritten to own the
- * whole encode path (see mediad_venc.c) instead of going through the VENC MPI
- * component. PTS/gap handling is kept: a >500 ms input gap forces an IDR so the
- * decoder/recorder resync at the resume point. */
+/* Per channel: VI frame -> mediad_venc encode -> publish. */
 static void *get_stream_thread(void *arg)
 {
     media_chan *ch = arg;
@@ -719,13 +633,8 @@ static void *get_stream_thread(void *arg)
         }
         fails = 0;
 
-        /* Genuine frame-rate throttle. The VI/sensor runs at SRC_FPS; when a
-         * lower rate is configured, drop source frames here so the encoder and
-         * everything downstream really run at g_fps instead of merely declaring
-         * it. The capture PTS keeps the emit points phase-locked to the source,
-         * and a late frame resyncs rather than causing a catch-up burst. (The
-         * VI/ISP capture rate itself is a separate matter and not throttled by
-         * this.) */
+        /* Drop source frames to reach g_fps, phase-locked to the capture PTS;
+         * a late frame resyncs instead of bursting. */
         if (g_fps > 0 && g_fps < SRC_FPS) {
             uint64_t interval = 1000000ull / (uint64_t)g_fps;
 
@@ -764,9 +673,8 @@ static void *get_stream_thread(void *arg)
             fprintf(stderr, "[%s] SLOW encode %llu ms\n", ch->name,
                     (unsigned long long)(t3 - t2) / 1000);
         if (ret == 0) {
-            /* Publish this frame, then drain any further bitstream units the
-             * encoder queued for it. Leaving one occupied starves the
-             * bitstream pool -> PutBits error -> the whole encoder dies. */
+            /* Drain every queued bitstream unit: one left occupied starves the
+             * pool and kills the encoder. */
             do {
                 fwm_venc_pack_t pack;
                 memset(&pack, 0, sizeof(pack));
@@ -782,8 +690,7 @@ static void *get_stream_thread(void *arg)
                      mediad_venc_next(ch->venc, &ef) == 0);
             venc_fails = 0;
         } else if (ret == -2) {
-            /* Input pool exhausted: reset the frame/bitstream managers and
-             * force an IDR rather than leak the rest of the session. */
+            /* Input pool exhausted: reset the managers and force an IDR. */
             if (++venc_fails >= MAX_VENC_FAILS) {
                 fprintf(stderr, "[%s] encoder input pool dead (%d); giving up to "
                                 "avoid wedging the box\n", ch->name, (int)venc_fails);
@@ -828,12 +735,8 @@ static int vi_start(media_chan *ch)
     memset(&attr, 0, sizeof(attr));
     attr.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     attr.memtype = V4L2_MEMORY_MMAP;
-    /* LBC 2.5X, matching stock rmm: its VI vipps 0/1 and VENC channels use
-     * MM_PIXEL_FORMAT_YUV_AW_LBC_2_5X (0x23) (rmm VI attr at 0x21780 writes
-     * 0x23; mppVencCfg[3]=0x101 byte1=1), so the frames are captured
-     * compressed. Uncompressed NV21 needs ~2x the frame buffers; rmm reserves
-     * NV21 for the snapshot/JPEG vipp only. */
-    /* MEDIAD_NV21=1: capture uncompressed NV21 instead (A/B against LBC). */
+    /* LBC 2.5X compressed capture, as stock rmm; NV21 (MEDIAD_NV21=1) needs
+     * about twice the frame-buffer memory. */
     attr.format.pixelformat = map_PIXEL_FORMAT_E_to_V4L2_PIX_FMT(
         mediad_capture_nv21() ? FWM_MM_PIXEL_FORMAT_YVU_SEMIPLANAR_420
                               : FWM_MM_PIXEL_FORMAT_YUV_AW_LBC_2_5X);
@@ -841,16 +744,12 @@ static int vi_start(media_chan *ch)
     attr.format.width = ch->cap_w;
     attr.format.height = ch->cap_h;
     attr.fps = g_fps;
-    attr.nbufs = 3;          /* stock rmm: 3. The VI driver rejects 2 (returns
-                              * "too many buffers" -> EnableVipp fails), so 3 is
-                              * the floor; 5 used ~9 MB more and caused OOM. */
+    attr.nbufs = 3;          /* driver rejects 2; 5 costs ~9 MB and OOMs */
     attr.nplanes = 2;
     attr.use_current_window = 0;
 
-    /* Sensor-commanding WDR (capturemode=2/wdr_mode=2) matches the camera's own
-     * ISP tuning we extract at boot (the vendor profile is WDR; extractor
-     * wdr=2), so default it on. If no tuning could be extracted we fall back to
-     * the open-SDK linear pipeline - MEDIAD_WDR=0 forces that. */
+    /* Sensor WDR mode follows the extracted tuning's flag, else the sensor
+     * table; MEDIAD_WDR forces it. */
     {
         const char *e = getenv("MEDIAD_WDR");
         int wdr = e ? (e[0] != '0')
@@ -866,8 +765,7 @@ static int vi_start(media_chan *ch)
 
     AW_MPI_VI_CreateVipp(ch->vi_dev);
     {
-        /* Known sensor: the table geometry should be exact (one try). Unknown
-         * sensor: walk a 16:9 candidate list until the driver accepts one. */
+        /* Unknown sensor: walk a 16:9 candidate list until the driver accepts one. */
         static const int fb_w[] = { 2304, 1920, 1280, 640 };
         static const int fb_h[] = { 1296, 1080, 720, 360 };
         int max_try = (ch->vi_dev == 0 && !g_sensor_known) ? 4 : 1;
@@ -927,35 +825,16 @@ static int vi_virchn_create(media_chan *ch)
     return 0;
 }
 
-/* Create our H.264 encoder channel over the VI virchn and cache SPS/PPS. The
- * virchn is NOT enabled here - all virchns are enabled only after every channel
- * is set up. */
+/* Open the encoder and cache SPS/PPS. Virchns are enabled only after every
+ * channel is set up. */
 static int venc_start(media_chan *ch)
 {
     struct mediad_venc_cfg cfg;
     unsigned char hdr[256];
     int n;
 
-    /* HW-encoder quality levers, all in the hardware codec. Defaults mirror
-     * stock rmm's own encoder dump (rmm_stdout.log:158/173), not the SDK
-     * defaults: profile 100 High, level 32, VBR, i/p_qp [10~40], idr_period 40.
-     * (rmm also enables its encoder 3DNR at level 3, but that smears motion, so
-     * we leave it off.) Override per-test:
-     *   MEDIAD_PROFILE  0 baseline / 1 main / 2 high (default 2 = rmm)
-     *   MEDIAD_RC       0 CBR / 1 VBR / 2 AVBR (default 1 = rmm)
-     *   MEDIAD_MINQP / MEDIAD_MAXQP  QP floor / cap (default 10 / 40 = rmm)
-     *   MEDIAD_CROP_X / MEDIAD_CROP_Y  HIGH: encode a PIC_W x PIC_H window of
-     *                   the capture at this offset (input crop, no scaling)
-     *   MEDIAD_OUT_W / MEDIAD_OUT_H  HIGH displayed size (SPS crop of the
-     *                   encoded picture; default = encoded size)
-     *   MEDIAD_OUT_X / MEDIAD_OUT_Y  offset of that window in the picture
-     *                   (even px; default centred; e.g. skip bad edge columns)
-     *   MEDIAD_GOP      keyframe interval in frames, both channels
-     *   MEDIAD_GOP_HIGH / MEDIAD_GOP_LOW  per channel, override MEDIAD_GOP
-     *                   (default 5 s HIGH / 1 s LOW: what Protect requests via
-     *                   nMultiplier, and a real G3's measured 5.000 s HIGH)
-     *   MEDIAD_3DNR     encoder 3D-filter level 0-3 (default 0: rmm's 3 smears)
-     *   MEDIAD_FASTENC  encoder fast-encode flag (default 0) */
+    /* Defaults are stock rmm's encoder settings (High, VBR, QP 10..40) except
+     * encoder 3DNR, which smears motion. Overrides: docs/env.md. */
     {
         const char *e;
         cfg.src_w = ch->cap_w;
@@ -972,7 +851,7 @@ static int venc_start(media_chan *ch)
         cfg.min_qp = 10;
         cfg.max_qp = 40;
         cfg.rc_mode = 1;      /* VBR */
-        cfg.nr3d = 0;         /* rmm runs 3DNR at level 3 but it smears motion */
+        cfg.nr3d = 0;
         cfg.fastenc = 0;
         cfg.chn = (int)ch->venc_chn;
         if ((e = getenv("MEDIAD_PROFILE"))) cfg.profile = atoi(e);
@@ -1038,11 +917,8 @@ static void chan_teardown(media_chan *ch)
     ch->spspps_len = 0;
 }
 
-/* Build stamp.  Defaults to the compiler's __DATE__/__TIME__; a reproducible
- * build passes -DMEDIAD_BUILD_STAMP=<no-spaces string> so the shipped binary is
- * byte-identical across build hosts (package.sh sets it to the source revision
- * date).  A stamp with spaces cannot survive EXTRA_CFLAGS, hence the single
- * token. */
+/* Reproducible builds pass -DMEDIAD_BUILD_STAMP=<token> (package.sh: a hash of
+ * the build inputs); it must contain no spaces to survive EXTRA_CFLAGS. */
 #ifndef MEDIAD_BUILD_STAMP
 #define MEDIAD_BUILD_STAMP __DATE__ " " __TIME__
 #endif
@@ -1105,16 +981,8 @@ int main(void)
         sigaction(SIGINT, &sa, NULL);
         sigaction(SIGTERM, &sa, NULL);
     }
-    /*
-     * Never let a dead peer kill the daemon. The control socket and the web UI
-     * both write replies to a client fd (isp_control.c handle_conn/http_reply);
-     * the goclient uses a 1 s deadline and closes the connection on timeout
-     * (mediad_ctl.go mediadCommand), so a slow reply -- e.g. while the ISP/VI
-     * pipeline is busy -- turns the next write() into EPIPE, whose default
-     * disposition is SIGPIPE (process death, rc 141). Ignoring it makes those
-     * writes fail with EPIPE/-1 instead, which every call site already handles
-     * or ignores.
-     */
+    /* Control/web clients time out and close; a reply to a closed socket must
+     * fail with EPIPE, not kill the daemon. */
     signal(SIGPIPE, SIG_IGN);
 
     memset(&sys_conf, 0, sizeof(sys_conf));
@@ -1132,12 +1000,8 @@ int main(void)
         return 1;
     }
 
-    /* 1. all vipps, THEN ISP_Run: the ISP's sensor subdev is only initialized
-     *    once a vipp has configured the sensor, so running the ISP first fails
-     *    with "unable to initialize sensor subdev" and the encoder gets black.
-     * 2. virchn, 3. VENCs bound+started, 4. enable virchn.
-     * This is the proven order (the original single-channel mediad also did
-     * vi_start before ISP_Run); stock rmm gets there via its JPEG vipp. */
+    /* Order: all vipps, ISP_Run (needs a configured sensor subdev), virchns,
+     * encoders, then enable virchns. */
     for (i = 0; i < nc; i++) {
         if (vi_start(&g_chans[i]) < 0)
             return 1;
@@ -1145,8 +1009,7 @@ int main(void)
 
     AW_MPI_ISP_Run(isp_dev);
 
-    /* Mounting orientation (e.g. r35gb is rotated 180): the capability table is
-     * the BASE; Protect's mirror/flip toggle is applied relative to it. */
+    /* Protect's mirror/flip toggles apply relative to the mounting orientation. */
     isp_control_set_orientation(g_mirror, g_flip);
 
     {
@@ -1195,8 +1058,7 @@ int main(void)
         }
     }
 
-    /* Phase 1b control surface: avclientd connects here and forwards Protect's
-     * picture settings. Failure is non-fatal (video continues without it). */
+    /* Control surface for Protect's picture settings; failure is non-fatal. */
     if (isp_control_start(isp_dev) < 0)
         fprintf(stderr, "mediad: ISP control surface unavailable\n");
 
@@ -1230,8 +1092,7 @@ int main(void)
     if (!getenv("MEDIAD_NO_AUDIO")) {
         if (mediad_audio_start() != 0)
             fprintf(stderr, "mediad: audio unavailable; continuing video-only\n");
-        /* Desktop talkback: read /tmp/audio_in_fifo and play via ALSA.
-         * Independent of the capture direction above. */
+        /* Talkback: /tmp/audio_in_fifo -> ALSA playback. */
         if (talkback_start() != 0)
             fprintf(stderr, "mediad: talkback unavailable; continuing\n");
     } else {
@@ -1251,8 +1112,7 @@ int main(void)
             pthread_detach(at);
     }
 
-    /* Everything is allocated by now; pin mediad in RAM before the steady
-     * state so the page reclaimer can never swap it out. */
+    /* Everything is allocated by now; pin it. */
     lock_memory();
 
     for (i = 0; i < nc; i++)

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/* mixer_probe.c - list ALSA simple-mixer controls matching codec hub/daudio,
- * printing whether enumerated and their enum items / current index. Used to
- * find the mic-path controls stock rmm sets that the SDK's alsaOpenMixer does
- * not (see other.md). */
+/* mixer_probe.c - list the codec hub/daudio ALSA simple-mixer controls with
+ * their enum items and current index (to find the mic-path controls). */
 #include <stdio.h>
 #include <string.h>
 #include <alsa/asoundlib.h>

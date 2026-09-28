@@ -1,17 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * mediad_audio.c - mic capture -> AAC-LC -> fshare ring, with no vendor audio.
- *
- * Replaces the Allwinner AI/AENC MPI chain with a direct ALSA capture stream
- * (16 kHz mono S16_LE; the codec hub/mic path is enabled by
- * audio_codec_hub_enable()) and our own freecodec AAC-LC backend
- * (libfreecodec_aac.a / FAAC). Each ADTS frame is published into
- * /dev/shm/fshare_frame_buf as type 0x0100, where stock rmm's aenc_get_aacstream
- * thread put it. The freecodec encoder pulls PCM through
- * GetPcmDataSize()/ReadPcmDataForEnc() (extern in its aac_iface.h, previously
- * supplied by the vendor aencoder.c); this file supplies them over a byte ring.
- */
+/* mediad_audio.c - mic capture (ALSA, 16 kHz mono S16_LE) -> AAC-LC (freecodec)
+ * -> fshare ring as type 0x0100 ADTS frames, as stock rmm publishes them. Also
+ * supplies the encoder's GetPcmDataSize()/ReadPcmDataForEnc() PCM pull. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,9 +36,8 @@ static unsigned char g_ring_buf[AUD_RING_BYTES];
 static unsigned char g_read_buf[AUD_FRAME_BYTES];
 static unsigned char g_out[AUD_OUT_CAP];
 
-/* Software mic gain, Q12. The codec's MIC1 gain tops out near 0 dB, and the
- * capture sat ~5-8 dB below the old vendor path (noise floor -58 vs -51 dBFS).
- * Default +12 dB; MEDIAD_MIC_GAIN_DB overrides (0 disables). */
+/* Software mic gain (Q12): the codec's MIC1 gain tops out near 0 dB.
+ * MEDIAD_MIC_GAIN_DB overrides the default (0 disables). */
 #define AUD_GAIN_DB_DEFAULT 12.0
 static int32_t g_gain_q12 = 4096;
 
@@ -170,10 +160,7 @@ int mediad_audio_start(void)
     if (g_up)
         return 0;
 
-    /* Enable the SoC codec/DAUDIO audio hub first: with the hub disabled every
-     * snd_pcm_readi() returns EIO and no PCM ever reaches the encoder. This call
-     * lived in main.c before the audio path moved here (commit fe9052a) and was
-     * dropped in that move, which silenced the mic entirely. */
+    /* Hub first: with it disabled every snd_pcm_readi() returns EIO. */
     {
         extern int audio_codec_hub_enable(void);
         if (audio_codec_hub_enable() < 0)

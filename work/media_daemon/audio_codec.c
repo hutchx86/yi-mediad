@@ -1,16 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * audio_codec.c - enable the SoC codec / DAUDIO AI hub before ALSA capture.
- *
- * Stock rmm enables these as part of its audio init; the SDK's alsaOpenMixer
- * does not, so after we removed rmm from the boot path the AI (mic) PCM read
- * fails with EIO and AENC gets no input. Controls (seen via tools/mixer_probe):
- *   card 0: "codec hub mode"               enum: 0=disable 1=enable
- *   card 1: "sunxi daudio audio hub mode"  enum: 0=null 1=disable 2=enable
- *   card 1: "sunxi daudio loopback debug"  switch
- * Stock sets them to 1 / 2 / 1. See other.md.
- */
+/* audio_codec.c - enable the SoC codec / DAUDIO hub mixer controls before ALSA
+ * capture, as stock rmm does (without them the mic read fails with EIO):
+ * "codec hub mode"=1 (card 0), "sunxi daudio audio hub mode"=2 and
+ * "sunxi daudio loopback debug"=1 (card 1). */
 #include <string.h>
 #include <alsa/asoundlib.h>
 

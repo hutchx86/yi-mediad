@@ -96,10 +96,8 @@ int fshare_init(void)
         return -1;
     g_ring = map;
 
-    /* Reset the control header so a stale ring (e.g. left by stock rmm, or a
-     * previous process whose ring wrapped) can't desync FshareReader: it uses
-     * +16 start to locate data, and if that is stale it never matches endOff.
-     * Leave +0 (reader refcount) alone. */
+    /* Reset the control header (not +0, the reader refcount): a stale start
+     * left by a previous writer would never match endOff in FshareReader. */
     hdr_set(FSHARE_OFF_LEN, 0);
     hdr_set(FSHARE_OFF_ENDOFF, 0);
     hdr_set(FSHARE_OFF_START, 0);
@@ -212,10 +210,8 @@ int fshare_publish(const void *payload, size_t len, uint16_t type,
     memcpy(hdr + 20, &hdr_type, sizeof(hdr_type));
     memcpy(hdr + 22, &stream_counter, sizeof(stream_counter));
 
-    /* Bytes first, control header last: a lock-free reader that sees the
-     * advanced header is guaranteed the payload is already present. Stock rmm
-     * does the opposite order under its write lock; this is strictly safer and
-     * still satisfies FshareReader's start/len/endOff consistency check. */
+    /* Bytes first, control header last, so a lock-free reader that sees the
+     * advanced header also sees the payload. */
     data_write(end, hdr, FSHARE_HDR_SIZE);
     if (prefix_len)
         data_write((end + FSHARE_HDR_SIZE) % FSHARE_DATA_SIZE, prefix, prefix_len);

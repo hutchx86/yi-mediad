@@ -118,5 +118,4 @@ buffers it allocated).
 This spec was written from: the public vencoder API surface, `mediad`'s own
 pre-existing encoder parameters, and the downstream ring contract. No Allwinner
 middleware source, decompilation, or symbol-level transcription was used. The
-implementation must be written from this spec alone; the quarantine note in
-`../archive/2026-09-18-venc-contaminated/` records the superseded draft.
+implementation must be written from this spec alone.

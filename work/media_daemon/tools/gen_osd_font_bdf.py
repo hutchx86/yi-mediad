@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
-"""Generate osd_font.h from two full-cell bitmap BDF fonts (8x16 and 16x32).
 
-The glyph bitmaps are copied unmodified (format conversion only) for ASCII
-32..126.  The output carries the source font's copyright/licence header, which
-must be kept with it.  Run once; the output is committed (no build dependency).
-
-  python3 tools/gen_osd_font_bdf.py ter-u16b.bdf ter-u32b.bdf -o osd_font.h
-"""
+# Generate osd_font.h from 8x16 and 16x32 BDF fonts, glyphs copied unmodified,
+# keeping the font's copyright/licence header with the output:
+#   python3 tools/gen_osd_font_bdf.py ter-u16b.bdf ter-u32b.bdf -o osd_font.h
 import argparse
 
 

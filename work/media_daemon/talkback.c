@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * talkback.c - see talkback.h.
- *
- * Direct ALSA playback of the PCM the sister's talkback_rx writes to
- * /tmp/audio_in_fifo (16 kHz mono S16). Replaces the Allwinner AO/CLOCK MPI
- * chain (mpi_ao, mpi_clock, AOChannel_Component, Clock_Component, audio_hw,
- * alsa_interface) with a plain snd_pcm playback stream plus the codec speaker
- * mixer path. When the FIFO has no data we write digital silence so the stream
- * stays fed (the CPLD amp is gated by talkback_rx, so silence is inaudible).
- */
+/* talkback.c - see talkback.h. An empty FIFO is padded with silence to keep
+ * the stream fed (talkback_rx gates the amp, so it is inaudible). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,9 +30,7 @@ static pthread_t g_tid;
 static snd_pcm_t *g_pcm;
 static const char *g_card = TB_CARD_CODEC;
 
-/* Best-effort codec speaker path (the vendor audio_hw did this via its AO
- * mixer). Only for the internal codec card; the daudio card has no such
- * controls. Names per the SDK's alsa_interface.h. */
+/* Best-effort codec speaker mixer path; the daudio card has no such controls. */
 static void tb_set_codec_controls(void)
 {
     snd_mixer_t *m = NULL;
@@ -135,9 +125,8 @@ int talkback_start(void)
     if (g_up)
         return 0;
 
-    /* MEDIAD_AO_CARD: 0 = internal codec ("default", card0 - the board's
-     * speaker: "External Speaker" + LINEOUT controls live here), 1 = daudio
-     * ("hw:1,0", card1, the AEC hardware loopback). Default codec. */
+    /* MEDIAD_AO_CARD: 0 = internal codec ("default", the speaker), 1 = daudio
+     * ("hw:1,0", the AEC loopback). */
     e = getenv("MEDIAD_AO_CARD");
     g_card = (e && e[0] == '1') ? TB_CARD_DAUDIO : TB_CARD_CODEC;
 
@@ -153,9 +142,8 @@ int talkback_start(void)
     snd_pcm_hw_params_set_format(g_pcm, hw, SND_PCM_FORMAT_S16_LE);
     snd_pcm_hw_params_set_channels(g_pcm, hw, TB_CHANNELS);
     snd_pcm_hw_params_set_rate_near(g_pcm, hw, &rate, 0);
-    /* Bound the ring: alsa-lib otherwise takes buffer_bytes_max from the DTB
-     * (65536 frames ~= 4.1 s), which the always-full silence-padded FIFO turns
-     * into ~4 s of latency. */
+    /* Bound the ring: the DTB's 65536-frame default plus the always-full FIFO
+     * would add ~4 s of latency. */
     ret = snd_pcm_hw_params_set_period_size_near(g_pcm, hw, &period, NULL);
     if (ret < 0)
         fprintf(stderr, "talkback: set_period_size_near: %s\n", snd_strerror(ret));

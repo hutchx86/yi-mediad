@@ -24,8 +24,8 @@ yi-protect card. The controller/bridge side lives in the sister project.
 > [Legal](#legal).
 
 > **AI-assisted development.** Large parts of this project were produced with
-> LLMs (DeepSeek), always under strict human supervision, review, and
-> real-hardware testing. Verify anything you rely on.
+> LLMs (Claude Code and DeepSeek), always under strict human supervision,
+> review, and real-hardware testing. Verify anything you rely on.
 
 ## Status
 
@@ -39,34 +39,35 @@ see [Features](#features).
 - **Drop-in producer** — publishes H.264 NALs (Annex-B, SPS/PPS re-emitted per
   IDR) onto the stock fshare ring at the stock offset/header size, so stock
   `imggrabber` and the FLV bridge read it unchanged.
-- **Two video channels** — HIGH (2304×1296 @20 fps, `vi_dev 0`) and LOW
-  (640×360 @20 fps, `vi_dev 1`), the stock `rmm` two-vipp topology; `MEDIAD_LOW=0`
-  for HIGH-only.
-- **Hardware H.264 encode** — VENC, profile 2 (High), VBR, GOP 40, QP [10,40]
-  (stock `rmm`'s own encoder values), FastEnc off. The H.264 engine is the
-  clean-room **freecodec** implementation (statically linked) and its supporting
-  framework is the clean-room `libvenc_base.so` shipped in `unifi/lib/`; no vendor
-  encoder blob is linked or shipped (see [Future](#future--in-progress)).
+- **Two video channels** — HIGH (`vi_dev 0`: 2304×1296 on `gc3003`, 1920×1080
+  on `gc2053`) and LOW (640×360, `vi_dev 1`), both 20 fps, the stock `rmm`
+  two-vipp topology; `MEDIAD_LOW=0` for HIGH-only.
+- **Hardware H.264 encode** — High profile, VBR, QP [10,40] (stock `rmm`'s own
+  encoder values), a keyframe every 5 s on HIGH and 1 s on LOW. The engine is
+  the clean-room **freecodec** implementation (statically linked) and its
+  supporting framework the clean-room `libvenc_base.so` shipped in `unifi/lib/`;
+  no vendor encoder blob is linked or shipped (see [Future](#future--in-progress)).
 - **Bitrate** — HIGH 2.8 Mbps / LOW 0.7 Mbps by default; HIGH is adjustable from
-  Protect, clamped to 4 Mbps by the control surface. `MEDIAD_HIGH_BPS`/`LOW_BPS`
-  override at boot.
+  Protect (clamped to 4 Mbps) and persists across restarts. `MEDIAD_HIGH_BPS` /
+  `MEDIAD_LOW_BPS` override at boot.
 - **Mic audio** — direct ALSA capture → AAC-LC, 16 kHz mono, ADTS, published into
   the same ring (type `0x0100`), as stock `rmm` does. The AAC encoder is our own
   **freecodec** build over upstream FAAC.
-- **ISP pipeline** — native Lindenis V833 `sun8iw19p1` libisp framework with the
-  **clean-room 3A/config tier** (`freewinner`) replacing the vendor algorithm
-  archives.
+- **ISP pipeline** — the clean-room `freewinner` libisp framework, 3A and
+  register/config tiers, on the V833 (`sun8iw19p1`) ISP-521 ABI.
 - **On-camera vendor tuning** — reads the camera's **own** OEM ISP config from
   `/home/app/rmm` at first init (test/3a/tunning/dynamic sections), remaps it to
   our struct, caches it on SD. **No blob or per-firmware address is compiled in.**
-- **WDR + PLTM** — full vendor WDR tuning via the Melis `isp521-ipc` algorithm
-  archive; local tone mapping (PLTM) runs.
+- **WDR + PLTM** — the camera's own WDR tuning drives the clean-room ISP tier;
+  local tone mapping (PLTM) runs, with its presets read from the camera's `rmm`
+  at first boot (not compiled in).
 - **Night vision** — IR-cut filter + IR LED from `/dev/cpld_periph`, plus a
   day/night **ISP tuning swap**. Modes: day, night, **auto at a lux threshold**
   (hysteresis + debounce), or IR-cut only; `ir_led` 0–100.
 - **Shutter exposure** — Protect Auto / Frame Capture / Best Low Light.
-- **Control surface** — an `AF_UNIX` socket + `mediad_ctl` CLI, a `mediad.conf`,
-  and a built-in web UI for every control (see [Control surface](#control-surface)).
+- **Control surface** — an `AF_UNIX` socket (used by yi-protect's client and
+  settings page, and by the `mediad_ctl` CLI) and a `mediad.conf` (see
+  [Control surface](#control-surface)).
 - **Robustness** — self-watchdog (exit after 15 s with no frames so a wedged
   pipeline can't wedge the board); `oom_score_adj=-1000`; `nbufs=3` to fit the
   60 MB box.
@@ -77,10 +78,9 @@ see [Features](#features).
 
 ## Future / in progress
 
-The goal is a build with no proprietary blob — **reached 2026-09-23**: the
-`ALGO_RTOS=1 FREECODEC_H264=1 FREECODEC_FENC=1 FREECODEC_FISP=1
-FREECODEC_FCAP=1 FREECODEC_HEADERS=1` deploy build (what `package.sh` runs)
-compiles no vendor source and includes no vendor header. Status by tier:
+The goal is a build with no proprietary blob, and it is reached: the deploy
+build (a bare `make`, which is also what `package.sh` runs) compiles no vendor
+source, includes no vendor header and links no vendor object. Status by tier:
 
 - **ISP 3A + register/config** — *done*. The AGPL-3.0-only clean-room
   **`freewinner`** tier (AE/AWB/AFS/ISO/GTM/PLTM plus the register/base layer)
@@ -96,7 +96,7 @@ compiles no vendor source and includes no vendor header. Status by tier:
   encoder API), `fisp_` (the ISP runtime) and `fcap_` (the capture runtime)
   replace all twelve vendor files in `work/media_daemon/Makefile`'s `SRC_MPI` +
   `SRC_VENCODER`; `FREECODEC_HEADERS=1` resolves the daemon's own headers from
-  `freewinner/freewinner-git/mw_headers` (our declarations) instead of the SDK's.
+  freewinner's `mw_headers` (our declarations) instead of the SDK's.
 
 A built `mediad` therefore links only our code plus the camera's own C/C++
 runtime and ALSA. See [Legal](#legal).
@@ -110,11 +110,16 @@ runtime and ALSA. See [Legal](#legal).
 
 ## Supported hardware
 
-Allwinner **sun8iw19**, ~60 MB RAM, BusyBox userland. Developed against:
+Allwinner **sun8iw19**, ~60 MB RAM, BusyBox userland. Supported and tested:
 
-- Yi **Pro 2k** (`y623`; PCB silkscreen may read `y621`)
-- Yi **Dome Camera U** (Full HD) (`h52ga`)
-- Yi **Dome Guard** (`r35gb`)
+| Model | Camera | Sensor | Notes |
+| --- | --- | --- | --- |
+| `y623` | Yi **Pro 2k** (PCB may read `y621`) | `gc3003_mipi` | 2304x1296 |
+| `h52ga` | Yi **Dome Camera U** (Full HD) | `gc2053_mipi` | 1920x1080 |
+| `r35gb` | Yi **Dome Guard** | `gc2053_mipi` | 1920x1080; mounted rotated 180°, capture cropped by `vin_crop_shim.so` (`mediad.r35gb.env`) |
+
+Other sun8iw19 models may work: an unknown sensor gets a best-effort 16:9
+geometry.
 
 The **sensor** is read at boot from the live ISP
 (`/sys/class/video4linux/v4l-subdev*/name`, e.g. `gc3003_mipi`, `gc2053_mipi`)
@@ -141,79 +146,107 @@ but contributes no object to the binary.
 | `talkback.c` | Desktop talkback: FIFO → ALSA speaker playback. |
 | `osd.c`, `osd_font.h` | Burned-in OSD (date/name/logo/bitrate); font: Terminus Bold (OFL, `fonts/OFL-Terminus.txt`). |
 | `isp_config.c`, `stub_audio_components.c` | ISP tuning import + control appliers. |
-| `isp_control.{c,h}` | The control socket + web UI. |
+| `isp_control.{c,h}` | Control socket, `mediad.conf`, night vision, optional slider page. |
 | `rmm_tuning.{c,h}` | On-camera tuning extraction from `/home/app/rmm` (+ SD cache). |
 | `stock_reg.c` | Optional stock register-table replay wrapper. |
-| `tools/`, `rmm_extract.c` | Extractor CLI and layout/build tools. |
+| `tools/`, `rmm_extract.c` | Extractor CLI, `mediad_ctl`, layout/build tools. |
+| `../vin_crop_shim/` | `LD_PRELOAD` capture crop used by `r35gb`. |
 
-## Install (SD-card overlay)
-
-The deliverable is a small overlay for an existing yi-protect SD card —
-`mediad` plus the scripts that make it run in place of the stock `rmm`; the
-bridge/client stack is untouched.
+## Build
 
 ```
-./package.sh                         # build mediad + assemble dist/
-# copy dist/ to the card, then on the device:
-/tmp/sd/unifi/install-mediad.sh      # default target /tmp/sd
+./build.sh          # once: fetch toolchain, SDK, FAAC, ... into ./repos
+make -C work/media_daemon     # deploy build -> work/media_daemon/mediad
+./package.sh        # deploy build + SD-card package -> dist/
 ```
 
-The installer copies `unifi/bin/mediad`, `unifi/etc/mediad.conf`,
-`unifi/script/mediad.sh` and the shared library in `unifi/lib/`
-(`libvenc_base.so`, which `mediad` finds via its `$ORIGIN/../lib` rpath), sets
-`IS_MEDIAD=yes` in `unifi.cfg`, and changes the two lines that handle the stock
-encoder (`init.sh` launches `mediad.sh start`; `watchdog.sh` watches `mediad`),
-keeping `.pre-mediad` backups. If yi-protect is already mediad-aware, it only
-copies files. Reboot afterwards.
+A bare `make` is the deploy build; `package.sh` runs the same flags (with its
+own `BUILD`/`TARGET` names and a reproducible build stamp) and then assembles
+`dist/`. Build knobs, including the vendor comparison builds: see
+[docs/build-knobs.md](docs/build-knobs.md).
 
-## Build from source
+The clean-room tiers come from
+[**freewinner**](https://github.com/hutchx86/freewinner) (`FW_ROOT`): the
+`./freewinner` git submodule when it is checked out (`build.sh` initialises it
+when the checkout has one), otherwise a sibling checkout at
+`../../freewinner/freewinner-git` relative to this repo. Override with
+`make FW_ROOT=/path/to/freewinner`.
 
-`build.sh` fetches every third-party input into `./repos/` and
-`work/media_daemon/prebuilt/` (both gitignored), then the Makefile compiles the
-vendor MPP source it needs and links our clean-room codecs:
+`build.sh` fetches the musl cross toolchain, the V833 SDK (sparse), FAAC, the
+Melis RTOS ISP archive and a link-time `libasound.so` into `./repos/` and
+`work/media_daemon/prebuilt/` (both gitignored), and applies an SDK patch used
+only by the vendor comparison builds. The deploy build links none of the SDK:
+the RTOS archive is reduced to an empty one. The Allwinner sources and binaries
+are fetched for interoperability and are **not** redistributed here. See
+[Legal](#legal).
+
+No tuning is compiled in. On first boot mediad reads the camera's own ISP tuning
+and 3A tables (including the PLTM presets) from `/home/app/rmm` and caches them
+under `/tmp/sd/unifi/isp_cfg/` (`freeisp_tables.bin` and the day/night blobs);
+later boots read the cache. `MEDIAD_NO_RMM_TUNING=1` disables this.
+
+## Package (`dist/`)
+
+`package.sh` produces:
 
 ```
-./build.sh
-make -C work/media_daemon                      # default: from-scratch, linear
-make -C work/media_daemon BUILD=build-rtos-v TARGET=mediad_rtos_v ALGO_RTOS=1 FREECODEC_H264=1 FREECODEC_FENC=1 FREECODEC_FISP=1 FREECODEC_FCAP=1 FREECODEC_HEADERS=1   # clean deploy build
+dist/
+  install-mediad.sh          installer
+  README.md                  package/README.md
+  licenses/                  LICENSE, LICENSE-EXCEPTION, NOTICE, OFL-Terminus.txt,
+                             COPYING-FAAC, SOURCE.txt (exact source revisions)
+  unifi/bin/mediad           stripped deploy build
+  unifi/etc/mediad.conf      default settings (installed only if absent)
+  unifi/etc/mediad.r35gb.env per-model settings (always refreshed)
+  unifi/script/mediad.sh     start/stop/restart/status/candidate
+  unifi/lib/libvenc_base.so  clean-room encoder support (found via $ORIGIN/../lib)
+  unifi/lib/vin_crop_shim.so capture crop, preloaded by mediad.r35gb.env
 ```
 
-`build.sh` fetches the musl cross toolchain, the V833 SDK (sparse), FAAC, a
-link-time `libasound.so`, and applies the SDK ABI patch. The SDK's closed
-Allwinner sources/binaries are fetched for interoperability and are **not**
-redistributed here. See [Legal](#legal).
+## Install
 
-The `ALGO_RTOS=1` deploy build links the AGPL-3.0-only clean-room ISP tier from a
-sibling [`freewinner`](../freewinner) checkout (path override: `FREEWINNER=`), and
-the freecodec AAC archive from a sibling `freecodec-git` checkout (override
-`FREECODEC_DIR=`). The clean tier replaces the vendor archive's 3A algorithm
-members *and* the register/config/base tier, so `libisp_algo_rtos.a` contributes
-no objects. On first boot the clean modules locate the camera's own tuning tables
-in `/home/app/rmm` and cache them to `/tmp/sd/unifi/isp_cfg/freeisp_tables.bin`;
-later boots read that bundle only. `MEDIAD_NO_RMM_TUNING=1` disables the feed.
+The package overlays an existing **yi-protect** SD card; the bridge/client stack
+is untouched.
 
-The default (non-RTOS) target still builds `libvenc_base.so` from SDK source and,
-like `ALGO_RTOS=0`, uses the vendor ISP algorithm archives; it is a development
-target, not the deliverable.
+1. Build: `./build.sh && ./package.sh`.
+2. Copy `dist/` to the card as its own folder, e.g.
+   `scp -r dist root@<camera>:/tmp/sd/mediad-dist` (or copy it onto the card on
+   a PC). Do not copy it over the card's `unifi/`: the installer keeps an
+   existing `mediad.conf` and backs up what it edits.
+3. On the camera: `sh /tmp/sd/mediad-dist/install-mediad.sh` (the SD root
+   defaults to `/tmp/sd`; pass another as the first argument).
+4. Reboot.
 
-Nothing proprietary is committed: tuning blobs, prebuilt archives, firmware and
-the device musl `libasound.so` are all gitignored and produced locally.
+The installer copies `unifi/{bin,etc,script,lib}`, sets `IS_MEDIAD=yes` in
+`unifi.cfg`, makes `init.sh` launch `mediad.sh start` instead of the stock
+`./rmm` and `watchdog.sh` watch `mediad`, keeping `.pre-mediad` backups. If
+yi-protect is already mediad-aware it only copies files. `mediad.sh` keeps a
+known-good copy of the binary and rolls back to it if a new one never produces
+frames. Details: [package/README.md](package/README.md).
 
 ## Control surface
 
-`mediad` runs an `AF_UNIX` `SOCK_STREAM` listener (default `/tmp/mediad_ctl.sock`,
-override `MEDIAD_CTL_SOCK`); one text line per request (`get`/`set`/`list`/`reset`/
-`ping`/…). `mediad_ctl` is a small on-device CLI for it. Keys:
-`brightness`, `contrast`, `saturation`, `hue`, `sharpness`, `denoise`,
-`exposure`, `aebias`, `gamma`, `tdf`, `pltm`, `wdr`/`hdr`, `flicker`/`frequency`,
-`mirror`, `flip`, `bitrate`, `nightvision`, `ir_cut`, `ir_led`, `shutter`.
-Defaults are the **stock** values (0–100 levels, 50 = neutral). They can also be
-set from `mediad.conf` (`/tmp/sd/unifi/etc/mediad.conf`, override `MEDIAD_CONF`)
-or the built-in web UI (`webui=1`, `webui_port=8099`).
+`mediad` listens on an `AF_UNIX` stream socket (`/tmp/mediad_ctl.sock`,
+`MEDIAD_CTL_SOCK`), one request line and one reply line each: `set <key> <n>`,
+`get <key>`, `list`, `reset`, `ping`, `pin <key> <n>`, `unpin <key>`,
+`pinned <key>`. yi-protect's client forwards Protect's picture settings there
+(with `IS_MEDIAD=yes`), and `mediad_ctl` (built next to `mediad`, not in the
+package) is a CLI for it. Keys include `brightness`, `contrast`, `saturation`,
+`hue`, `sharpness`, `denoise`, `tdf`, `nr2d`, `cnr`, `venc3d`, `exposure`,
+`aebias`, `gamma`, `pltm`, `wdr`/`hdr`, `flicker`/`frequency`, `mirror`, `flip`,
+`bitrate`, `nightvision`, `night_lux`, `ir_cut`, `ir_led`, `shutter` and the
+`osd*` switches (`mediad_ctl list` prints them). Picture levels are 0–100
+with 50 = stock.
 
-Encoder quality is env-overridable: `MEDIAD_HIGH_BPS`/`MEDIAD_LOW_BPS`,
-`MEDIAD_PROFILE`/`MEDIAD_RC`/`MEDIAD_MINQP`/`MEDIAD_MAXQP`/`MEDIAD_GOP`/
-`MEDIAD_3DNR`/`MEDIAD_FPS`.
+- **Web UI:** yi-protect's settings page (`http://<camera>/`, port `WEBUI_PORT`
+  in `unifi.cfg`, default 80, 0 = off) edits these controls and saves them as
+  pinned values. mediad also has a minimal built-in slider page, off by default
+  (`webui=1`, `webui_port=8099` in `mediad.conf`).
+- **`mediad.conf`** (`/tmp/sd/unifi/etc/mediad.conf`, `MEDIAD_CONF`): `key=value`
+  lines are applied at boot and **pinned**, so Protect's connect-time re-assert
+  cannot override them; `pin_<key>=value` sets a boot value without pinning.
+- **Environment:** encoder, geometry and bring-up knobs are environment
+  variables, set in `unifi/etc/mediad.env`: see [docs/env.md](docs/env.md).
 
 ## Legal
 
@@ -225,19 +258,18 @@ Encoder quality is env-overridable: `MEDIAD_HIGH_BPS`/`MEDIAD_LOW_BPS`,
   Allwinner source and includes no vendor header: the ISP 3A/register tier, AAC,
   H.264, the VENC/ISP/capture middleware and the daemon's own interface headers
   are all clean-room (AGPL-3.0-only `freewinner`/`freecodec`). The SDK is still
-  fetched at build time as a source of *concepts* and for the `-lvenc_base`
-  sibling layout, but contributes no object to the shipped binary. This repo does
-  **not** distribute any Allwinner source or binary. See [`NOTICE`](NOTICE).
+  fetched at build time for the vendor comparison builds, but contributes no
+  object to the shipped binary. This repo does **not** distribute any Allwinner
+  source or binary. See [`NOTICE`](NOTICE).
 - Intended for interoperability and personal use on hardware you own. Reverse
   engineering may be restricted in your jurisdiction; you are responsible for how
   you use it.
 
 ## Disclaimer
 
-**This is a proof-of-concept project, not a production-ready system.** Large
-parts were produced with LLMs under strict human supervision and real-hardware
-testing — review and verify everything yourself. **This software is provided "as
-is", without warranty of any kind.** It runs custom binaries on your camera and
+**This is a proof-of-concept project, not a production-ready system.** Review
+and verify everything yourself. **This software is provided "as is", without
+warranty of any kind.** It runs custom binaries on your camera and
 modifies what it launches: you can **brick the camera**, lose recordings, and
 void its warranty. By using it you accept full responsibility for any damage,
 data loss, downtime, or other consequences. **The authors and contributors are

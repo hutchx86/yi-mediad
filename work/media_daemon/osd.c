@@ -1,29 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * osd.c - burned-in OSD overlay: date+name line, bitrate/stats line, logo.
- *
- * Protect's OSD is camera-side burn-in (ChangeOsdSettings). mediad owns the
- * encoder directly through libcedarc (mediad_venc.c) and never creates a
- * middleware VENC channel, so the middleware AW_MPI_RGN_* region API has no
- * chn[8] to attach to. The vendor's own OSD path does not go through that
- * region API either: mpi_venc.c's configVencOsd() (media/mpi_venc.c:2998) packs
- * its regions into a fwm_venc_overlay_t and hands it to the encoder with
- * VideoEncSetParameter(FWM_VENC_PARAM_OVERLAY) (VideoEnc_Component.c:3197).
- * That index is implemented by libvenc_codec.so - the same encoder mediad links
- * - so we render each element into an ARGB1555 buffer here and push the whole
- * set with mediad_venc_set_overlay().
- *
- * Elements use bit15 as per-pixel alpha (1 = opaque, 0 = transparent) and
- * extra_alpha_flag=0 so only the drawn pixels are burned in (no opaque box).
- * Blocks are addressed in 16x16 macroblock units, so every region's size and
- * position is 16-aligned. Text comes from an embedded 8x16 ASCII font; the logo
- * is a placeholder bitmap. Layout mirrors a real UniFi camera: a stats line, a
- * "<date> <time> | <name>" line, and the logo anchored bottom-right; the text
- * block's corner is selectable (OSD_POS). The overlay is re-pushed on every
- * control change and once a second (clock/bitrate); the encoder applies it to
- * every frame it encodes.
- */
+/* osd.c - burned-in OSD: a stats line, "<date> <time> | <name>" and a logo,
+ * laid out like a UniFi camera, rendered as ARGB1555 blocks (16-aligned) and
+ * re-pushed to the encoder on every control change and once a second. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,13 +22,10 @@ extern fwi_isp_ctx_t isp_ctx[];
 #define OSD_NEL 3
 #define OSD_MAX_BLK 64   /* encoder overlay block limit (FWM_VENC_OVERLAY_MAX_REGIONS) */
 #define OSD_MAXCOL  64   /* 16-px columns per element (INFO is 52 wide) */
-/* Letter colour hysteresis on background luma (0..255): switch to the
- * complement colour above HI, back below LO, after DWELL consecutive samples
- * (sampled every OSD_SAMPLE_US).  White text vs luma: the hardware mode-2
- * equivalent flips around ~140. */
-/* AE-statistics units (pre-gamma window averages).  Calibrated on y623 against
- * the decoded picture: AE 80 ~ displayed luma 125, AE 92 ~ 150 (white text
- * becomes hard to read above ~140).  Env MEDIAD_OSD_LUMA_HI / _LO override. */
+/* Letter colour hysteresis: complement above HI, back below LO, after DWELL
+ * consecutive samples (every OSD_SAMPLE_US). */
+/* In AE-statistics units (pre-gamma): AE 80 ~ displayed luma 125, AE 92 ~ 150.
+ * MEDIAD_OSD_LUMA_HI / _LO override. */
 #define OSD_LUMA_HI     92
 #define OSD_LUMA_LO     80
 #define OSD_DWELL       2     /* consecutive 250 ms ticks */
@@ -277,21 +253,15 @@ static int el_block(const osd_el *e, struct mediad_venc_ovl_blk *b)
     }
     ((osd_el *)e)->ink[0] = 1;
     b->hw_invert = (unsigned char)g_hwinv;
-    /* Luma-invert unit = one 16-px glyph column x the element's text height
-     * (a 2x-scaled 8x16 glyph is 16x32 = 1x2 MB), so each letter flips as a
-     * whole.  The hardware allows up to 4 MB per side. */
+    /* Invert unit = one 16-px glyph column x the text height, so each letter
+     * flips as a whole (hardware limit: 4 MB per side). */
     b->unit_w_minus1 = 0;
     b->unit_h_minus1 = (unsigned char)(e->hh / 16 - 1 > 3 ? 3 : e->hh / 16 - 1);
     return 1;
 }
 
-/*
- * Text elements go to the encoder as one overlay block per 16-px column.  The
- * encoder's luma-adaptive inversion decides per overlay block (the background
- * is judged over the whole block), so a block per glyph column lets each
- * letter (16 px wide at 2x) flip on its own background.  Fully transparent
- * columns (spaces, unused width) are not sent.  Returns blocks written.
- */
+/* One overlay block per 16-px text column, so each letter's colour follows its
+ * own background; fully transparent columns are skipped. Returns blocks written. */
 static int blk_cmp(const void *a, const void *b)
 {
     const struct mediad_venc_ovl_blk *x = a, *y = b;
@@ -398,14 +368,8 @@ void osd_refresh(void)
 
 static void load_default_name(void);
 
-/*
- * Letter colour from the background, with hysteresis.  The capture frames are
- * LBC-compressed, so the background comes from the ISP's AE statistics: a
- * 24 x 16 grid of window luma averages over the whole picture, refreshed every
- * frame.  Each letter's value is bilinearly interpolated at its centre (the
- * grid is picture-relative, so it applies to every stream), then switched to
- * the complement colour above HI and back below LO after OSD_DWELL ticks.
- */
+/* Letter colour from the background: the capture is LBC-compressed, so luma is
+ * interpolated from the AE statistics' 24x16 grid at each letter's centre. */
 #define AE_GX 24
 #define AE_GY 16
 

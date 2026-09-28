@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * rmm_tuning.c - see rmm_tuning.h. Extraction core, shared by mediad (in
- * process at first init) and the rmm_extract CLI.
- *
- * Nothing about a particular rmm/firmware is hardcoded: the sensor name is the
- * live one, and the four isp_param_config sections are found by scanning the
- * ELF for that name and following its config pointers. The only compiled-in
- * table is the stock-521 -> V833 struct remap (rmm_layout.h).
- */
+/* rmm_tuning.c - see rmm_tuning.h. Extraction core shared by mediad and the
+ * rmm_extract CLI; nothing firmware-specific is compiled in. */
 #include "rmm_tuning.h"
 
 #include <stdio.h>
@@ -84,15 +77,12 @@ static long v2o(const seg_t *segs, int nseg, uint32_t va) {
             return (long)segs[i].off + (va - segs[i].va);
     return -1;
 }
-/* Vendor WDR flag (cfg_arr +84) of the matched sensor entry; -1 until found.
- * 0 = linear, 2 = sensor-commanding WDR (varies per model even for the same
- * sensor, e.g. h52ga gc2053=0 vs r35gb gc2053=2). */
+/* WDR flag (cfg_arr +84) of the matched entry: 0 linear, 2 WDR, -1 unknown.
+ * It varies per model even for the same sensor. */
 static int g_wdr = -1;
 
-/* stock rmm cfg_arr entry: sensor name at +0 (needle is name+\0), w/h/fps at
- * +72, wdr/ir at +84, isp_cfg_pt at +92. The pointed-to array holds the four
- * isp_param_config section pointers (test, 3a, tunning, dynamic). This is the
- * one layout assumption left; it is validated by valid_blob() below. */
+/* cfg_arr entry: name +0, w/h/fps +72, wdr/ir +84, isp_cfg_pt +92 (-> the four
+ * section pointers: test, 3a, tunning, dynamic). Checked by valid_blob(). */
 static int scan_sensor(const unsigned char *d, size_t n, const char *sensor,
                        unsigned int day[4], unsigned int night[4])
 {
@@ -176,9 +166,8 @@ int rmm_tuning_wdr(void) {
     return g_wdr;
 }
 
-/* Scan rmm's cfg_arr for `sensor` and return its day-entry WDR flag (+84),
- * without building/validating blobs. Needed because rmm_tuning_load may serve
- * the on-SD cache and never touch rmm (so g_wdr would stay unset). Cheap. */
+/* Day-entry WDR flag for `sensor`, straight from rmm: rmm_tuning_load may be
+ * served from the SD cache and leave g_wdr unset. */
 int rmm_tuning_probe_wdr(const char *rmm_path, const char *sensor) {
     unsigned char *rmm;
     seg_t segs[MAX_SEGS]; int nseg;

@@ -31,8 +31,7 @@ daemon's own interface headers are all our clean-room code (the AGPL-3.0-only
 source too. The SDK tree is still fetched at build time, but no vendor object
 reaches the link — the table below is the audit trail for what it provides and
 why nothing of it ships. (Notices are the result of an audit of the actual
-archives, source headers and camera drivers - see the project's
-`implementation.md`.)
+archives, source headers and camera drivers.)
 
 Userspace - CLOSED (no license grant) — **audited and NOT compiled into the
 `package.sh` deploy build** (replaced by the clean-room tiers above):
@@ -73,12 +72,13 @@ Userspace - CLOSED (no license grant) — **audited and NOT compiled into the
   are not the deliverable.)
 * **Prebuilt ISP 3A/tuning archives** (`libisp_ae/af/afs/awb/base/gtm/iso/md/
   pltm/rolloff.a`, or `libisp_algo_rtos.a`) - **replaced** in the deploy build by
-  the AGPL-3.0-only clean-room `freewinner` tier (sibling checkout); no 3A archive
-  object is linked there (the RTOS archive is stripped to empty). Only the opt-out
-  vendor comparison build (e.g. `ALGO_RTOS=` on the make command line) links them.
+  the AGPL-3.0-only clean-room `freewinner` tier; no 3A archive object is linked
+  there (every member of the RTOS archive is dropped, leaving an empty archive).
+  Only the opt-out vendor comparison builds (e.g. `ALGO_RTOS=` on the make
+  command line) link them.
 * **AAC**: the vendor `libaacenc.a` is **not** linked - replaced by our
-  `freecodec` encoder over upstream **FAAC** (LGPL-2.1-or-later) from the sibling
-  `freecodec-git` checkout. `libmp3enc.a` was never linked (mediad only selects
+  `freecodec` encoder (freewinner's `codec/`) over upstream **FAAC**
+  (LGPL-2.1-or-later), fetched by `build.sh`. `libmp3enc.a` was never linked (mediad only selects
   AAC; the two MP3 entry points are stubbed). The clean-room `freewinner`/
   `freecodec` tiers are AGPL-3.0-only like this daemon, so the combined deploy
   binary is AGPL-3.0-only.
@@ -95,10 +95,11 @@ Kernel - OPEN (evidence: `.ko` modinfo on the camera):
   compressed). The userspace encoder core over it is closed regardless.
 
 Other:
-* **alsa-lib** - `work/media_daemon/include/alsa/*.h` (52 headers, tracked in
-  this repo) is a verbatim vendored subset of alsa-lib 1.1.4.1; those headers
-  carry LGPL-2.1-or-later. The camera's own `libasound.so.2` is linked at
-  runtime, not redistributed. Keep the LGPL notice with those headers.
+* **alsa-lib** - `work/media_daemon/include/alsa/*.h` (19 headers, tracked in
+  this repo): the public headers reached from `<alsa/asoundlib.h>`, from
+  alsa-lib 1.1.4.1, LGPL-2.1-or-later. All are verbatim except `asoundlib.h`
+  (`<sys/poll.h>` -> `<poll.h>` for musl, marked in the file). The camera's own
+  `libasound.so.2` is linked at runtime, not redistributed.
 * **rmm fshare ring format** - reverse engineered from the camera's own stock
   `rmm`; the stock binary is not redistributed.
 * **Terminus Font** (bold, 8x16 and 16x32) - the glyph bitmaps in the
@@ -106,8 +107,7 @@ Other:
   4.49.1, Copyright (C) 2020 Dimitar Toshkov Zhekov, SIL Open Font License 1.1
   (Reserved Font Name "Terminus Font"). The licence is in
   `work/media_daemon/fonts/OFL-Terminus.txt` and must ship with the source and
-  any distribution of the font data. (Replaces the earlier DejaVu Sans Mono
-  rendering.)
+  any distribution of the font data.
 * **iniparser** (`libisp/iniparser`) - ships no license file in this SDK tree;
   upstream iniparser is MIT.
 

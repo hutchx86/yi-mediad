@@ -1,19 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * vin_crop_shim.c - LD_PRELOAD: apply a sunxi-vin VIPP crop
- * (VIDIOC_S_SELECTION, V4L2_SEL_TGT_CROP) to the capture node whose S_FMT
- * matches VINCROP's w x h. Crop happens in the VIPP, before LBC compression,
- * so the encoder gets a clean w x h picture with no SPS crop needed. (The
- * encoder cannot crop: its input is LBC-compressed and freecodec ignores the
- * per-picture crop fields.) Used by r35gb, whose 1936x1096 capture has a
- * garbage margin that Protect's live view shows when left to an SPS crop.
- *
- *   VINCROP=x,y,w,h   e.g. 8,8,1920,1080
- *
- * Applied after a matching S_FMT and again just before STREAMON on that fd;
- * each attempt logs the G_SELECTION readback to stderr.
- */
+/* vin_crop_shim.c - LD_PRELOAD: VINCROP=x,y,w,h (e.g. 8,8,1920,1080) applies a
+ * VIPP crop (VIDIOC_S_SELECTION) to the capture node whose S_FMT is w x h, after
+ * S_FMT and again before STREAMON, so the encoder gets a clean picture. */
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdarg.h>

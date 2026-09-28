@@ -1,17 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 yi-mediad contributors
-/*
- * stock_reg.c - wire stock rmm's captured ISP register program into mediad.
- *
- * The linker wraps the 2019 libisp's isp_set_load_reg(), so every load-reg call
- * is handed stock's whole captured table instead of our computed one. Before
- * that we overlay the four live AWB gains (r,gr,gb,b u16 at 0x370, the same
- * offset in the 2019 and 2021 load-reg layouts) so white balance keeps
- * adapting; sensor exposure/gain remain our 3A's. Whole-table replay (not
- * per-module copies) keeps the gamma/DRC/CEM/CCM/module-enable state
- * consistent. The table is generated from the user's own camera by
- * tools/make_stock_reg.py (gitignored); without it the wrapper is inert.
- */
+/* stock_reg.c - isp_set_load_reg() wrapper: denoise-switch enforcement, dump
+ * support and, with STOCK_REG=1, replay of a register table captured from the
+ * user's own camera (tools/make_stock_reg.py) with live AWB gains overlaid. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,17 +15,8 @@
 extern unsigned int isp_stock_reg_len;
 extern unsigned char isp_stock_reg[];
 
-/*
- * Tunable module-register overlays (first 0x1000 of the load-reg buffer, where
- * the 2019 and 2021 layouts share offsets). When the matching env knob is
- * present, copy that control's bytes from our computed table onto the replayed
- * stock table, so the setting bites without losing stock's static look.
- * Offsets from other.md / the mpi_isp setter trace:
- *   saturation 0x490, sharpness 0x420..0x43c, cnr/denoise 0x470,
- *   tdf/3dnr 0x2d0..0x2dc, pltm 0x3b0..0x3bc, wdr 0x200..0x208,
- *   rgb2yuv 0x520..0x538, wb_gain 0x370..0x378.
- * (Brightness/contrast land in the gamma/DRC table regions, banked for later.)
- */
+/* When a control's env knob is set, copy its bytes from our computed table
+ * onto the replayed one (offsets in the shared first 0x1000). */
 struct ctl_overlay {
     const char *env;
     unsigned int off;
@@ -62,8 +44,7 @@ static void overlay_controls(const unsigned char *computed, unsigned int comp_le
 }
 #endif
 
-/* Direct edits to the replayed stock table (Phase 1b applier experiments).
- * Offsets are byte offsets into isp_stock_reg; values are 32-bit words. */
+/* Direct 32-bit edits to the replayed table; off is a byte offset. */
 int isp_stock_reg_poke(unsigned int off, unsigned int val, unsigned int *old)
 {
 #ifdef HAVE_STOCK_REG
@@ -93,14 +74,10 @@ int isp_stock_reg_peek(unsigned int off, unsigned int *val)
 }
 
 int __wrap_isp_set_load_reg(struct hw_isp_device *isp,
-                            struct isp_table_reg_map *reg)
+                            struct fwi_table_reg_map *reg)
 {
-    /* Enforce the denoise switches on the final module-enable word (+0x1a0):
-     * D2D (spatial) bit 4, D3D (tdf/3DNR) bit 5, chroma denoise bit 23. The ISP
-     * rebuilds the flags from the stock tuning on every reload, so without this
-     * 3DNR ran whatever mediad.conf said (ghosting on motion and dark fabric).
-     * tdf is only ever cleared (its "on" is the tuning's own); nr2d/cnr are
-     * enforced both ways so a night tuning cannot silently drop them. */
+    /* Enforce the denoise switches in the module-enable word (+0x1a0), rebuilt
+     * on every tuning reload: nr2d bit 4, cnr bit 23; tdf bit 5 only cleared. */
     if (reg && reg->addr && reg->size >= 0x1a4) {
         static unsigned int logged_m = ~0u;
         unsigned int m, want;
@@ -121,10 +98,8 @@ int __wrap_isp_set_load_reg(struct hw_isp_device *isp,
         }
     }
 
-    /* Debug: `mediad_ctl dump <path>` snapshots the computed (pre-replay)
-     * table on the next load-reg. Kept outside the HAVE_STOCK_REG guard so the
-     * clean (redistributable, no vendor data) build can still capture its own
-     * register program for diagnosis. */
+    /* `mediad_ctl dump <path>`: snapshot the computed table on the next
+     * load-reg (in every build, for diagnosis). */
     if (reg && reg->addr && reg->size) {
         char path[160];
         if (isp_control_pending_dump(path, sizeof(path))) {
@@ -160,7 +135,7 @@ int __wrap_isp_set_load_reg(struct hw_isp_device *isp,
                    (unsigned char *)reg->addr + 0x370, 8);
         if (reg->addr)
             overlay_controls((unsigned char *)reg->addr, reg->size);
-        /* Runtime picture controls (Phase 1b): overlay the register ranges the
+        /* Runtime picture controls: overlay the register ranges the
          * controller has actually set, on top of the WB/static replay. */
         if (reg->addr) {
             unsigned int n = reg->size < isp_stock_reg_len ? reg->size

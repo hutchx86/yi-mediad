@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
-"""Generate the 8x16 1bpp ASCII font used by osd.c.
 
-Renders ASCII 32..126 from a monospace TTF into 8x16 cells and emits a C header
-(one glyph = 16 bytes, MSB = leftmost pixel). Run once; the output is committed
-as osd_font.h (no runtime/build dependency on the TTF).
-
-  python3 tools/gen_osd_font.py <ttf> -o osd_font.h
-"""
+# Render ASCII 32..126 from a monospace TTF into 8x16 1bpp cells (16 bytes per
+# glyph, MSB leftmost) as a C header:
+#   python3 tools/gen_osd_font.py <ttf> -o osd_font.h
 import sys, argparse
 from PIL import Image, ImageDraw, ImageFont
 

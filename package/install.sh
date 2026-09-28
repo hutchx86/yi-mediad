@@ -1,16 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
-#
-# install.sh - overlay mediad onto an existing yi-protect SD card.
-#
-# It installs the mediad binary/conf/launcher, points the client's IS_MEDIAD flag
-# at it, and adjusts the two lines of the yi-protect init/watchdog that deal with
-# the stock encoder (`rmm` -> mediad). Everything it edits is backed up first.
-#
-# Usage:  ./install.sh [SD_ROOT]        (default /tmp/sd)
-#
-# Run it on the device (with the SD card mounted) or against a mounted card.
+
+# install.sh [SD_ROOT] (default /tmp/sd) - overlay mediad onto a yi-protect card:
+# files, IS_MEDIAD=yes, and the init/watchdog rmm lines (backed up first).
 set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -47,9 +40,8 @@ else
     install -m 0644 "$HERE/unifi/etc/mediad.conf" "$PREFIX/etc/mediad.conf"
     echo "  installed default mediad.conf"
 fi
-# Per-model facts (mediad.<model>.env, e.g. r35gb's sensor/crop geometry) are
-# ours and always refreshed; without them a model can stall at ~1 fps. A local
-# mediad.env (per-deploy knobs) is never touched.
+# Per-model mediad.<model>.env files are always refreshed; a local mediad.env
+# (per-deploy knobs) is never touched.
 for env in "$HERE/unifi/etc/"mediad.*.env; do
     [ -f "$env" ] || continue
     install -m 0644 "$env" "$PREFIX/etc/$(basename "$env")"
