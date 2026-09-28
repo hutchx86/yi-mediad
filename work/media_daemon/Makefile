@@ -55,9 +55,13 @@ CEDARC := $(LIB)/libcedarc
 # so this still works when PROJECT_ROOT is overridden (e.g. the CLAUDE.md
 # verification command passes PROJECT_ROOT=$PWD).
 SIBLINGS  ?= $(abspath $(MD)/../../../..)
-FREEWINNER ?= $(SIBLINGS)/freewinner/freewinner-git/isp
-# Our AAC backend (freewinner/freecodec-git); its headers are on INC below.
-FREECODEC_DIR ?= $(SIBLINGS)/freewinner/freecodec-git
+# freewinner checkout: the `freewinner` git submodule at the repo root when it
+# is checked out (git clone --recurse-submodules, or ./build.sh), else the
+# sibling workspace checkout. Override FW_ROOT (or FREEWINNER/FREECODEC_DIR).
+FW_ROOT ?= $(if $(wildcard $(MD)/../../freewinner/isp/Makefile),$(abspath $(MD)/../../freewinner),$(SIBLINGS)/freewinner/freewinner-git)
+FREEWINNER ?= $(FW_ROOT)/isp
+# Our codec (H.264 + AAC); its headers are on INC below.
+FREECODEC_DIR ?= $(FW_ROOT)/codec
 FW_GIT    := $(FREEWINNER)
 SHIM_DIR  := $(FW_GIT)/shim
 CSRC_DIR  := $(FW_GIT)/src

@@ -73,7 +73,12 @@ cp LICENSE LICENSE-EXCEPTION NOTICE dist/licenses/
 cp work/media_daemon/fonts/OFL-Terminus.txt dist/licenses/OFL-Terminus.txt
 cp repos/faac/COPYING dist/licenses/COPYING-FAAC
 # Corresponding source for this exact build (GPL-3.0 / AGPL-3.0 / LGPL-2.1).
-FW_DIR="$REPO/../../freewinner/freewinner-git"
+# Same resolution as the Makefile's FW_ROOT: the submodule when checked out.
+if [ -f "$REPO/freewinner/isp/Makefile" ]; then
+    FW_DIR="$REPO/freewinner"
+else
+    FW_DIR="$REPO/../../freewinner/freewinner-git"
+fi
 fw_rev=$(git -C "$FW_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
 fw_url=$(git -C "$FW_DIR" remote get-url origin 2>/dev/null || echo "(not yet published)")
 md_rev=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)

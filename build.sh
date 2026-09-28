@@ -59,6 +59,15 @@ for t in git curl make python3 patch tar; do
 done
 mkdir -p "$DEPS" "$PREBUILT"
 
+# freewinner (clean-room ISP + codec) is a git submodule at ./freewinner, pinned
+# to the commit this tree was built against; a plain `git clone` leaves it
+# empty. Without .gitmodules (a development checkout) the Makefile uses the
+# sibling workspace instead.
+if [ -f "$REPO_ROOT/.gitmodules" ] && [ ! -f "$REPO_ROOT/freewinner/isp/Makefile" ]; then
+    say "freewinner submodule"
+    git -C "$REPO_ROOT" submodule update --init freewinner
+fi
+
 say "cross toolchain ($TC_REPO @ ${TC_REF%${TC_REF#???????}})"
 TC_DIR="$DEPS/lindenis-v536-prebuilt"
 if [ -d "$TC_DIR/.git" ]; then
