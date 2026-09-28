@@ -171,6 +171,8 @@ static int g_shutter;   /* VI_SHUTTIME_MODE_E */
  * move the filter first, wait for it to travel, then set the LED.
  * 0x7015 = filter out (night/IR-passing), 0x7016 = filter in (day),
  * 0x7013 = LED level (pointer to int32). Same numbers on y623/h52ga/r35gb. */
+static void night_state_save(void);
+
 static void daynight_apply(int night)
 {
     int32_t lvl = night ? 100 : 0;
@@ -189,6 +191,7 @@ static void daynight_apply(int night)
     }
     g_ir_cut = night ? 1 : 0;
     g_ir_led = (int)lvl;
+    night_state_save();
     isp_config_set_daynight(night);
     /* isp_config_set_daynight only flips the flag (the full tuning swap is
      * opt-in); re-apply the colour matrix so night's forced monochrome (see
@@ -211,8 +214,14 @@ static void daynight_apply(int night)
 #define NIGHT_DEBOUNCE  5         /* consecutive agreeing polls before switching */
 #define NIGHT_MIN_SWITCH_TICKS 10 /* >=30 s between switches */
 #define NIGHT_AMBIENT_PERIOD 120  /* IR-off daylight confirm at most every 2 min */
+#define NIGHT_AMBIENT_MAX_PERIOD 900 /* ... backing off to 15 min while it stays dark */
+#define NIGHT_SETTLE_POLLS 4      /* polls (12 s) for AE to settle under IR */
+#define NIGHT_AMBIENT_RISE_LV 100 /* 1 EV above the IR-lit baseline = real ambient light */
 
-static double g_night_lux = 5.0;   /* switch-to-night threshold, lux */
+/* Switch-to-night threshold, lux. 20, not 5: in the dark the lv estimate
+ * floors at about 4-8 "lux" (y623 lv 72, r35gb lv 100-160 at max gain), so a
+ * 5 lux threshold (night below lv ~60) could never trigger (2026-09-27). */
+static double g_night_lux = 20.0;
 static int    g_lv_live;           /* last measured lv (calibration readout) */
 static pthread_t g_night_tid;
 static volatile int g_night_run;
@@ -234,6 +243,12 @@ static void *night_poller(void *arg)
     int is_night = g_ir_cut, cross = 0, tick = 0, resync = 1;
     int last_switch_tick = 0;
     time_t amb_next = 0;
+    int amb_period = NIGHT_AMBIENT_PERIOD;
+    /* Night with our IR on: the IR-lit lv is inflated and says nothing about
+     * daylight. Track its settled minimum (ir_base) and only consider day once
+     * lv rises clearly above it (ambient light added on top of the IR). */
+    int prev_night = -1, ir_base = -1, settle = 0;
+    int prev_lv = -1000, steady = 0;    /* decisions only on a settled AE */
     (void)arg;
     while (g_night_run) {
         struct timespec ts = { NIGHT_POLL_SEC, 0 };
@@ -250,6 +265,12 @@ static void *night_poller(void *arg)
          * matched what it computed. daynight_apply() keeps g_ir_cut in sync on
          * our own switches. */
         is_night = g_ir_cut;
+        if (is_night != prev_night) {       /* entered night (ours or manual) */
+            prev_night = is_night;
+            ir_base = -1;
+            settle = NIGHT_SETTLE_POLLS;
+            amb_period = NIGHT_AMBIENT_PERIOD;
+        }
         lv = AW_MPI_ISP_GetEnvLV(0);
         if (lv <= 0)
             continue;                       /* AE not valid yet */
@@ -257,11 +278,32 @@ static void *night_poller(void *arg)
         if (++tick % 10 == 0)
             fprintf(stderr, "mediad: auto day/night poll lv=%d lux=%.1f\n",
                     lv, lv_to_lux(lv));
+        /* Decide only once the AE has settled: three polls within +-20 lv.
+         * After a (re)start it converges for well over 12 s from a bright
+         * prior (lv ~800 in a dark room), and acting on that clicked the
+         * filter to day and back (2026-09-27). */
+        steady = (abs(lv - prev_lv) <= 20) ? steady + 1 : 0;
+        prev_lv = lv;
+        if (steady < 2)
+            continue;
         thr = lux_to_lv(g_night_lux);
-        /* day->night when lv drops below thr-hyst; stay night until lv rises
-         * above thr+hyst */
-        want = is_night ? (lv < thr + NIGHT_HYST_LV)
-                        : (lv < thr - NIGHT_HYST_LV);
+        /* day->night when lv drops below thr-hyst. At night the IR inflates
+         * lv, so stay night until lv rises NIGHT_AMBIENT_RISE_LV above the
+         * settled IR-lit baseline; the IR-off check below then decides against
+         * thr+hyst. (Comparing the IR-lit lv to thr directly made both cameras
+         * flip back to day every ~2 min, 2026-09-27.) */
+        if (is_night) {
+            if (settle > 0) {
+                settle--;
+                want = 1;
+            } else {
+                if (ir_base < 0 || lv < ir_base)
+                    ir_base = lv;
+                want = !(lv >= ir_base + NIGHT_AMBIENT_RISE_LV);
+            }
+        } else {
+            want = lv < thr - NIGHT_HYST_LV;
+        }
         if (want == is_night && !resync) { cross = 0; continue; }
         if (!resync && ++cross < NIGHT_DEBOUNCE)
             continue;
@@ -279,17 +321,33 @@ static void *night_poller(void *arg)
              * does not flicker. */
             time_t now = time(NULL);
             int32_t off = 0, on = 100;
-            int lv2;
+            int lv2 = 0, prev = -1000, stable = 0, i;
             if (now < amb_next)
                 continue;
-            amb_next = now + NIGHT_AMBIENT_PERIOD;
             cpld_req(CPLD_LED_LEVEL, &off);
-            usleep(1200 * 1000);            /* let the AE re-settle */
-            lv2 = AW_MPI_ISP_GetEnvLV(0);
-            if (!(lv2 > 0 && lv2 >= thr - NIGHT_HYST_LV)) {
+            /* Let the AE converge without the IR (1.2 s was far too short:
+             * it still read the IR-lit value and called it day). Stop early
+             * once clearly dark, or once lv holds steady for ~1 s. */
+            for (i = 0; i < 20; i++) {
+                usleep(300 * 1000);
+                lv2 = AW_MPI_ISP_GetEnvLV(0);
+                if (lv2 > 0 && lv2 < thr - NIGHT_HYST_LV)
+                    break;
+                stable = (lv2 > 0 && abs(lv2 - prev) <= 8) ? stable + 1 : 0;
+                prev = lv2;
+                if (stable >= 3)
+                    break;
+            }
+            if (!(lv2 > 0 && lv2 >= thr + NIGHT_HYST_LV)) {
                 cpld_req(CPLD_LED_LEVEL, &on);   /* still dark: restore */
                 g_ir_led = 100;
-                fprintf(stderr, "mediad: auto day/night IR-off check lv=%d -> stay night\n", lv2);
+                amb_next = now + amb_period;
+                if (amb_period < NIGHT_AMBIENT_MAX_PERIOD)
+                    amb_period *= 2;
+                ir_base = -1;                   /* re-baseline after the blink */
+                settle = NIGHT_SETTLE_POLLS;
+                fprintf(stderr, "mediad: auto day/night IR-off check lv=%d -> stay night "
+                        "(next check in %d s)\n", lv2, (int)(amb_next - now));
                 continue;
             }
             fprintf(stderr, "mediad: auto day/night IR-off check lv=%d -> day\n", lv2);
@@ -329,12 +387,38 @@ static int set_ir_led(int d, int v)
 }
 static int get_ir_led(int d, int *v) { (void)d; *v = g_ir_led; return 0; }
 
+/* Day/night mode and threshold survive a mediad restart (as the bitrate does
+ * in mediad.bitrate): Protect sends them only when changed, so without this a
+ * restart fell back to the default threshold and auto never switched. Loaded
+ * before mediad.conf, so a pin there still wins. */
+#define MEDIAD_NIGHT_FILE "/tmp/sd/unifi/etc/mediad.night"
+static int g_night_loaded;          /* don't rewrite the file while loading it */
+
+static void night_state_save(void)
+{
+    char tmp[] = MEDIAD_NIGHT_FILE ".tmp";
+    FILE *f;
+
+    if (!g_night_loaded)
+        return;
+    f = fopen(tmp, "w");
+    if (f == NULL)
+        return;
+    fprintf(f, "nightvision=%d\nnight_lux=%d\nir_cut=%d\n", g_nightvision,
+            (int)(g_night_lux + 0.5), g_ir_cut);
+    if (fclose(f) == 0)
+        rename(tmp, MEDIAD_NIGHT_FILE);
+}
+
 static int set_nightvision(int d, int v)
 {
     (void)d;
     if (v < 0 || v > 2)
         return -1;
-    g_nightvision = v;
+    if (v != g_nightvision) {
+        g_nightvision = v;
+        night_state_save();
+    }
     if (v == 1)                /* always on (night) */
         daynight_apply(1);
     else if (v == 0)           /* always off (day) */
@@ -344,7 +428,17 @@ static int set_nightvision(int d, int v)
 }
 static int get_nightvision(int d, int *v) { (void)d; *v = g_nightvision; return 0; }
 
-static int set_night_lux(int d, int v) { (void)d; g_night_lux = v > 0 ? (double)v : 0.0; return 0; }
+static int set_night_lux(int d, int v)
+{
+    double lux = v > 0 ? (double)v : 0.0;
+
+    (void)d;
+    if (lux != g_night_lux) {
+        g_night_lux = lux;
+        night_state_save();
+    }
+    return 0;
+}
 static int get_night_lux(int d, int *v) { (void)d; *v = (int)(g_night_lux + 0.5); return 0; }
 static int set_lux_ro(int d, int v) { (void)d; (void)v; return -1; } /* read-only */
 static int get_lux(int d, int *v) { (void)d; *v = (int)(lv_to_lux(g_lv_live) + 0.5); return 0; }
@@ -448,7 +542,7 @@ static struct ctl g_controls[] = {
     { "nightvision", 0,                  0,   2,   2,   set_nightvision, get_nightvision },
     { "ir_cut",      0,                  0,   1,   0,   set_ir_cut,      get_ir_cut },
     { "ir_led",      0,                  0,   100, 0,   set_ir_led,      get_ir_led },
-    { "night_lux",   0,                  0,   100000, 5, set_night_lux, get_night_lux },
+    { "night_lux",   0,                  0,   100000, 20, set_night_lux, get_night_lux },
     { "lux",         0,                  0,   100000, 0, set_lux_ro,    get_lux },
     { "lv",          0,                  0,   100000, 0, set_lux_ro,    get_lv },
     { "shutter",     0,                  0,   2,   0,   set_shutter,     get_shutter },
@@ -975,6 +1069,35 @@ int isp_control_start(int isp_dev)
     g_apply_run = 1;
     pthread_create(&g_apply_tid, NULL, apply_thread, NULL);
     printf("mediad: ISP control socket at %s\n", g_sock);
+    /* Restore the last day/night mode + threshold, then mediad.conf (pins win). */
+    {
+        FILE *f = fopen(MEDIAD_NIGHT_FILE, "r");
+        char line[64];
+        int v, ir = -1;
+
+        while (f && fgets(line, sizeof(line), f)) {
+            if (sscanf(line, "nightvision=%d", &v) == 1 && v >= 0 && v <= 2) {
+                pend_set((int)(find_ctl("nightvision") - g_controls), v);
+                fprintf(stderr, "mediad: restored nightvision=%d\n", v);
+            } else if (sscanf(line, "ir_cut=%d", &v) == 1 && (v == 0 || v == 1)) {
+                ir = v;
+            } else if (sscanf(line, "night_lux=%d", &v) == 1 && v > 0) {
+                pend_set((int)(find_ctl("night_lux") - g_controls), v);
+                fprintf(stderr, "mediad: restored night_lux=%d\n", v);
+            }
+        }
+        if (f)
+            fclose(f);
+        g_night_loaded = 1;
+        /* Re-assert the last day/night state: after a mediad restart the IR
+         * LEDs are still latched on, and believing "day" read that IR-lit
+         * scene as daylight and clicked the filter day->night (2026-09-27);
+         * after a reboot this restores night straight away. */
+        if (ir == 1) {
+            daynight_apply(1);
+            fprintf(stderr, "mediad: restored ir_cut=1 (night)\n");
+        }
+    }
     /* Apply mediad.conf startup values (+ optional web UI). */
     isp_control_load_config(getenv("MEDIAD_CONF"));
     return 0;
