@@ -578,6 +578,23 @@ int osd_start(const osd_chan_cfg *chans, int nchan, const char *camera_name)
     return 0;
 }
 
+/* Hold the render lock across a codec switch (render_all takes the same lock
+ * while it uses a channel's venc), then rebind the channel to the new encoder. */
+void osd_quiesce_venc(int chn)
+{
+    (void)chn;
+    pthread_mutex_lock(&g_lock);
+}
+
+void osd_rebind_venc(int chn, struct mediad_venc *venc)
+{
+    if (chn >= 0 && chn < g_nch) {
+        g_ch[chn].venc = venc;
+        g_ch[chn].shown = 0;
+    }
+    pthread_mutex_unlock(&g_lock);
+}
+
 void osd_stop(void)
 {
     int i, j;

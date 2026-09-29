@@ -67,6 +67,10 @@ typedef struct {
     uint64_t next_due_us;      /* frame-rate throttle: PTS at which the next encode is due */
     int codec;                 /* 0 = H.264 (default), 1 = H.265/HEVC */
     int pending_codec;         /* -1 = none; >=0 = switch requested for this thread */
+    /* Guards ch->venc between this channel's encode thread (which re-creates it
+     * on a codec switch) and the control-socket thread's setters, so a set can
+     * never hit an encoder mid-close/open. */
+    pthread_mutex_t vencMu;
     pthread_t tid;
 } media_chan;
 
@@ -364,7 +368,10 @@ int mediad_set_bitrate(const char *name, unsigned int bps)
             continue;
         if (bps == g_chans[i].bitrate)
             return 0;
-        if (mediad_venc_set_bitrate(g_chans[i].venc, (int)bps) != 0)
+        pthread_mutex_lock(&g_chans[i].vencMu);
+        int rc = g_chans[i].venc ? mediad_venc_set_bitrate(g_chans[i].venc, (int)bps) : -1;
+        pthread_mutex_unlock(&g_chans[i].vencMu);
+        if (rc != 0)
             return -1;
         g_chans[i].bitrate = bps;
         save_bitrate(name, bps);
@@ -382,9 +389,12 @@ int mediad_set_venc3d(int level)
     int i, rc = 0;
 
     level = level < 0 ? 0 : level > 511 ? 511 : level;
-    for (i = 0; i < NCHAN; i++)
+    for (i = 0; i < NCHAN; i++) {
+        pthread_mutex_lock(&g_chans[i].vencMu);
         if (g_chans[i].venc && mediad_venc_set_filter3d(g_chans[i].venc, level) != 0)
             rc = -1;
+        pthread_mutex_unlock(&g_chans[i].vencMu);
+    }
     if (rc == 0 && level != g_venc3d)
         fprintf(stderr, "mediad: encoder 3D filter -> %d\n", level);
     if (rc == 0)
@@ -642,6 +652,8 @@ static void *get_stream_thread(void *arg)
         if (ch->pending_codec >= 0 && ch->pending_codec != ch->codec) {
             int nc = ch->pending_codec;
             fprintf(stderr, "[%s] switching codec to %s\n", ch->name, nc ? "h265" : "h264");
+            pthread_mutex_lock(&ch->vencMu);
+            osd_quiesce_venc((int)(ch - g_chans));
             mediad_venc_close(ch->venc);
             ch->venc = NULL;
             free(ch->spspps);
@@ -652,6 +664,8 @@ static void *get_stream_thread(void *arg)
                 fprintf(stderr, "[%s] codec switch failed\n", ch->name);
             else
                 mediad_venc_request_idr(ch->venc);
+            osd_rebind_venc((int)(ch - g_chans), ch->venc);
+            pthread_mutex_unlock(&ch->vencMu);
             ch->pending_codec = -1;
             continue;
         }
@@ -674,7 +688,9 @@ static void *get_stream_thread(void *arg)
                 g_stop = 1;
                 break;
             }
+            pthread_mutex_lock(&ch->vencMu);
             mediad_venc_request_idr(ch->venc);
+            pthread_mutex_unlock(&ch->vencMu);
             continue;
         }
         fails = 0;
@@ -699,7 +715,9 @@ static void *get_stream_thread(void *arg)
             ((const fwm_video_frame_t *)&fi.v_frame)->mpts - ch->last_pts > MEDIAD_INPUT_GAP_US) {
             fprintf(stderr, "[%s] input gap %llu ms, forcing IDR\n", ch->name,
                     (unsigned long long)(((const fwm_video_frame_t *)&fi.v_frame)->mpts - ch->last_pts) / 1000);
+            pthread_mutex_lock(&ch->vencMu);
             mediad_venc_request_idr(ch->venc);
+            pthread_mutex_unlock(&ch->vencMu);
         }
         ch->last_pts = ((const fwm_video_frame_t *)&fi.v_frame)->mpts;
 
@@ -709,6 +727,7 @@ static void *get_stream_thread(void *arg)
         cov.phyC = (void *)(unsigned long)((const fwm_video_frame_t *)&fi.v_frame)->phy_addr[1];
         cov.stride = (int)((const fwm_video_frame_t *)&fi.v_frame)->stride[0];
 
+        pthread_mutex_lock(&ch->vencMu);
         memset(&ef, 0, sizeof(ef));
         t2 = now_us();
         ret = mediad_venc_encode(ch->venc, &cov, &ef);
@@ -747,6 +766,7 @@ static void *get_stream_thread(void *arg)
             fprintf(stderr, "[%s] encoder input pool exhausted; resetting\n", ch->name);
             mediad_venc_reset(ch->venc);
         }
+        pthread_mutex_unlock(&ch->vencMu);
 
         t4 = now_us();
         if (t4 - t3 > max_pub)

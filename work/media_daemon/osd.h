@@ -28,6 +28,12 @@ enum {
     OSD_NCTL
 };
 
+/* Codec switch: osd_quiesce_venc takes the render lock so the overlay thread
+ * cannot use a channel's encoder, then osd_rebind_venc points it at the new
+ * encoder and releases the lock. Call around a venc close/re-open. */
+void osd_quiesce_venc(int chn);
+void osd_rebind_venc(int chn, struct mediad_venc *venc);
+
 /* Start drawing on the given venc channels (must already exist). camera_name
  * may be NULL. Returns 0 on success. */
 int osd_start(const osd_chan_cfg *chans, int nchan, const char *camera_name);
