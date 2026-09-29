@@ -639,6 +639,10 @@ static void *get_stream_thread(void *arg)
     long venc_fails = 0;
     time_t start = time(NULL);
     uint64_t max_get = 0, max_enc = 0, max_pub = 0;
+    /* Capture -> ring-publish latency: the age of the source frame (its VI mpts)
+     * when the encoded access unit is published. This is the camera-side
+     * glass-to-ring delay (encoder pipeline + queueing). */
+    uint64_t lat_sum = 0, lat_max = 0;
 
     while (!g_stop) {
         fwm_video_frame_info_t fi;
@@ -769,6 +773,16 @@ static void *get_stream_thread(void *arg)
         pthread_mutex_unlock(&ch->vencMu);
 
         t4 = now_us();
+        {
+            uint64_t mpts = (uint64_t)((const fwm_video_frame_t *)&fi.v_frame)->mpts;
+
+            if (t4 > mpts) {
+                uint64_t lat = t4 - mpts;
+                lat_sum += lat;
+                if (lat > lat_max)
+                    lat_max = lat;
+            }
+        }
         if (t4 - t3 > max_pub)
             max_pub = t4 - t3;
         if (t4 - t3 > 100000)
@@ -787,6 +801,14 @@ static void *get_stream_thread(void *arg)
                    (unsigned long long)max_pub / 1000);
             fflush(stdout);
             max_get = max_enc = max_pub = 0;
+        }
+        if (count % 100 == 0) {
+            printf("[%s] lat avg=%.1fms max=%llums (last 100)\n", ch->name,
+                   (double)lat_sum / 100.0 / 1000.0,
+                   (unsigned long long)lat_max / 1000);
+            fflush(stdout);
+            lat_sum = 0;
+            lat_max = 0;
         }
     }
     printf("[%s] stopping after %ld frames\n", ch->name, count);
