@@ -65,6 +65,8 @@ typedef struct {
     size_t assemble_cap;
     uint64_t last_pts;         /* last encoded PTS (us); used to detect input gaps */
     uint64_t next_due_us;      /* frame-rate throttle: PTS at which the next encode is due */
+    int codec;                 /* 0 = H.264 (default), 1 = H.265/HEVC */
+    int pending_codec;         /* -1 = none; >=0 = switch requested for this thread */
     pthread_t tid;
 } media_chan;
 
@@ -74,6 +76,8 @@ static media_chan g_chans[] = {
     { "low",  1, 0, 1, FSHARE_TYPE_LOW,   640,  360,  640,  360,  700000, NULL, 0, 0, 0 },
 };
 #define NCHAN ((int)(sizeof(g_chans) / sizeof(g_chans[0])))
+
+static int venc_start(media_chan *ch);   /* defined below; used by the codec switch */
 
 static volatile sig_atomic_t g_stop;
 static volatile uint32_t g_last_frame_ms;
@@ -457,11 +461,25 @@ static void publish_nal(media_chan *ch, const unsigned char *nal, size_t n, uint
     if (sc == 0 || sc >= n)
         return;
 
-    switch (nal[sc] & 0x1f) {
-    case 5: type |= FSHARE_TYPE_IDR; break;
-    case 7: type |= FSHARE_TYPE_SPS; prefix = sps_prefix; prefix_len = sizeof(sps_prefix); break;
-    case 8: type |= FSHARE_TYPE_PPS; break;
-    default: break; /* SEI / non-IDR slice: channel base type only */
+    if (ch->codec == 1) {
+        /* HEVC: the bridge classifies VPS/SPS/PPS by the payload NAL type, so
+         * tag HEVC + VPS/PPS/IDR but never the ring SPS bit (FshareReader strips
+         * 6 bytes when it is set, which would corrupt the HEVC SPS). */
+        unsigned t = (unsigned)((nal[sc] >> 1) & 0x3f);
+        type |= FSHARE_TYPE_HEVC;
+        if (t >= 16 && t <= 23)
+            type |= FSHARE_TYPE_IDR;
+        else if (t == 32)
+            type |= FSHARE_TYPE_VPS;
+        else if (t == 34)
+            type |= FSHARE_TYPE_PPS;
+    } else {
+        switch (nal[sc] & 0x1f) {
+        case 5: type |= FSHARE_TYPE_IDR; break;
+        case 7: type |= FSHARE_TYPE_SPS; prefix = sps_prefix; prefix_len = sizeof(sps_prefix); break;
+        case 8: type |= FSHARE_TYPE_PPS; break;
+        default: break; /* SEI / non-IDR slice: channel base type only */
+        }
     }
 
     (void)fshare_publish(nal, n, type, ts, ch->stream_counter++,
@@ -500,8 +518,8 @@ static void publish_annexb(media_chan *ch, const unsigned char *buf, size_t len,
         publish_nal(ch, buf, len, ts); /* no start code: treat as a single NAL */
 }
 
-/* Does this Annex-B buffer contain an IDR slice (NAL type 5)? */
-static int has_idr(const unsigned char *buf, size_t len)
+/* Does this Annex-B buffer contain an IDR/IRAP slice? */
+static int has_idr(const media_chan *ch, const unsigned char *buf, size_t len)
 {    size_t i = 0;
 
     while (i + 3 <= len) {
@@ -516,8 +534,16 @@ static int has_idr(const unsigned char *buf, size_t len)
             i++;
             continue;
         }
-        if (i + sc < len && (buf[i + sc] & 0x1f) == 5)
-            return 1;
+        if (i + sc < len) {
+            unsigned hdr = buf[i + sc];
+            if (ch->codec == 1) {
+                unsigned t = (hdr >> 1) & 0x3f;
+                if (t >= 16 && t <= 23)
+                    return 1;
+            } else if ((hdr & 0x1f) == 5) {
+                return 1;
+            }
+        }
         i += sc;
     }
     return 0;
@@ -551,7 +577,7 @@ static void publish_pack(media_chan *ch, const fwm_venc_pack_t *pack)
 
     /* Re-emit SPS+PPS before every IDR, as stock rmm does; readers that wait
      * for an SPS (imggrabber) would otherwise never start. */
-    if (ch->spspps_len && has_idr(ch->assemble, total))
+    if (ch->spspps_len && has_idr(ch, ch->assemble, total))
         publish_annexb(ch, ch->spspps, ch->spspps_len, ts);
 
     publish_annexb(ch, ch->assemble, total, ts);
@@ -610,6 +636,26 @@ static void *get_stream_thread(void *arg)
         struct cov1 cov;
         int ret;
         uint64_t t0, t1, t2, t3, t4;
+
+        /* A codec switch is applied here, on this channel's own thread at a
+         * frame boundary, so the encoder is never torn down mid-encode. */
+        if (ch->pending_codec >= 0 && ch->pending_codec != ch->codec) {
+            int nc = ch->pending_codec;
+            fprintf(stderr, "[%s] switching codec to %s\n", ch->name, nc ? "h265" : "h264");
+            mediad_venc_close(ch->venc);
+            ch->venc = NULL;
+            free(ch->spspps);
+            ch->spspps = NULL;
+            ch->spspps_len = 0;
+            ch->codec = nc;
+            if (venc_start(ch) < 0)
+                fprintf(stderr, "[%s] codec switch failed\n", ch->name);
+            else
+                mediad_venc_request_idr(ch->venc);
+            ch->pending_codec = -1;
+            continue;
+        }
+        ch->pending_codec = -1;
 
         memset(&fi, 0, sizeof(fi));
         t0 = now_us();
@@ -873,8 +919,9 @@ static int venc_start(media_chan *ch)
             if ((e = getenv("MEDIAD_OUT_Y"))) cfg.out_y = atoi(e);
         }
         if ((e = getenv("MEDIAD_FASTENC"))) cfg.fastenc = atoi(e);
-        fprintf(stderr, "[%s] venc profile=%d rc=%s minqp=%d maxqp=%d gop=%d 3dnr=%d\n",
-                ch->name, cfg.profile,
+        cfg.codec = ch->codec;   /* set from env at startup, or by a codec switch */
+        fprintf(stderr, "[%s] venc codec=%s profile=%d rc=%s minqp=%d maxqp=%d gop=%d 3dnr=%d\n",
+                ch->name, cfg.codec ? "h265" : "h264", cfg.profile,
                 cfg.rc_mode == 0 ? "cbr" : (cfg.rc_mode == 2 ? "avbr" : "vbr"),
                 cfg.min_qp, cfg.max_qp, cfg.gop, cfg.nr3d);
     }
@@ -901,6 +948,34 @@ static int venc_start(media_chan *ch)
     printf("[mediad] %s channel ready: vi_dev=%d vi_chn=%d %dx%d @%d kbps (own venc)\n",
            ch->name, ch->vi_dev, ch->vi_chn, ch->pic_w, ch->pic_h,
            ch->bitrate / 1000);
+    return 0;
+}
+
+/* Request a codec switch (0 = H.264, 1 = H.265/HEVC) for "high", "low" or
+ * "all". The request is recorded; the channel's own encode thread re-creates
+ * the encoder at its next frame boundary. */
+int mediad_set_codec(const char *name, int codec)
+{
+    int i, n = 0;
+
+    codec = codec ? 1 : 0;
+    for (i = 0; i < NCHAN; i++) {
+        if (strcmp(name, "all") != 0 && strcmp(g_chans[i].name, name) != 0)
+            continue;
+        g_chans[i].pending_codec = codec;
+        n++;
+    }
+    return n ? 0 : -1;
+}
+
+int mediad_get_codec(const char *name)
+{
+    int i;
+
+    for (i = 0; i < NCHAN; i++)
+        if (strcmp(g_chans[i].name, name) == 0)
+            return g_chans[i].pending_codec >= 0 ? g_chans[i].pending_codec
+                                                 : g_chans[i].codec;
     return 0;
 }
 
@@ -998,6 +1073,19 @@ int main(void)
     if (fshare_init() < 0) {
         fprintf(stderr, "fshare_init failed\n");
         return 1;
+    }
+
+    /* Per-channel start-up codec: MEDIAD_CODEC_HIGH / MEDIAD_CODEC_LOW, or
+     * MEDIAD_CODEC; "h265"/"1" selects HEVC, anything else H.264. Runtime
+     * switches come through the `codec` control (mediad_set_codec). */
+    for (i = 0; i < NCHAN; i++) {
+        const char *ce = getenv(strcmp(g_chans[i].name, "high") == 0
+                                ? "MEDIAD_CODEC_HIGH" : "MEDIAD_CODEC_LOW");
+        if (!ce)
+            ce = getenv("MEDIAD_CODEC");
+        if (ce)
+            g_chans[i].codec = (strcmp(ce, "h265") == 0 || atoi(ce) == 1) ? 1 : 0;
+        g_chans[i].pending_codec = -1;
     }
 
     /* Order: all vipps, ISP_Run (needs a configured sensor subdev), virchns,

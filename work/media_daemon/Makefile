@@ -460,14 +460,31 @@ FREECODEC_H264_SRCS := \
     $(FREECODEC_H264_DIR)/enc/freecodec_enc.c \
     $(FREECODEC_H264_DIR)/enc/freecodec_enc_regs.c
 FREECODEC_H264_OBJS := $(patsubst $(FREECODEC_H264_DIR)/%.c,$(BUILD)/fc_h264/%.o,$(FREECODEC_H264_SRCS))
-H264_CODEC_LINK := $(FREECODEC_H264_OBJS) -lvenc_base
+# Clean-room H.265 encoder device. The framework's device table references
+# video_encoder_h265 even when the H.264 device is the selected one, so its
+# objects are always linked with the clean codec (they are inert until a
+# channel selects H.265).
+FREECODEC_H265_DIR  := $(FREECODEC_DIR)/src/h265
+FREECODEC_H265_SRCS := \
+    $(FREECODEC_H265_DIR)/regs/h265_regs.c \
+    $(FREECODEC_H265_DIR)/headers/h265_headers.c \
+    $(FREECODEC_H265_DIR)/rc/h265_rc.c \
+    $(FREECODEC_H265_DIR)/enc/freecodec_h265_enc.c \
+    $(FREECODEC_H265_DIR)/enc/freecodec_h265_enc_regs.c
+FREECODEC_H265_OBJS := $(patsubst $(FREECODEC_H265_DIR)/%.c,$(BUILD)/fc_h265/%.o,$(FREECODEC_H265_SRCS))
+H264_CODEC_LINK := $(FREECODEC_H264_OBJS) $(FREECODEC_H265_OBJS) -lvenc_base
 # Own flag set: the codec sees only freecodec headers, never an SDK root.
 FREECODEC_H264_CFLAGS := $(CFG_DEFS) -Wall -Wno-unused-but-set-variable \
     -Wno-unused-variable -I$(FREECODEC_DIR)/include $(EXTRA_CFLAGS)
 $(BUILD)/fc_h264/%.o: $(FREECODEC_H264_DIR)/%.c | $(BUILD)
 	@mkdir -p $(dir $@)
 	$(CC) $(FREECODEC_H264_CFLAGS) -c $< -o $@
+FREECODEC_H265_CFLAGS := $(FREECODEC_H264_CFLAGS) -I$(FREECODEC_H265_DIR)/enc
+$(BUILD)/fc_h265/%.o: $(FREECODEC_H265_DIR)/%.c | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(CC) $(FREECODEC_H265_CFLAGS) -c $< -o $@
 else
+FREECODEC_H265_OBJS :=
 FREECODEC_H264_OBJS :=
 H264_CODEC_LINK := -lvenc_base -lvenc_codec -lVE
 endif
@@ -579,7 +596,7 @@ $(FREECODEC_AAC): FORCE
 	    TC=$(TC)/bin/arm-openwrt-linux-muslgnueabi \
 	    FAAC_DIR=$(FAAC_REL)
 
-$(TARGET): $(OBJS) $(RMM_LAYOUT_H) $(VENCBASE_SO) $(FREECODEC_AAC) $(FREECODEC_H264_OBJS) $(FREECODEC_FENC_LIB) $(FREECODEC_FISP_LIB) $(FREECODEC_FCAP_LIB)
+$(TARGET): $(OBJS) $(RMM_LAYOUT_H) $(VENCBASE_SO) $(FREECODEC_AAC) $(FREECODEC_H264_OBJS) $(FREECODEC_H265_OBJS) $(FREECODEC_FENC_LIB) $(FREECODEC_FISP_LIB) $(FREECODEC_FCAP_LIB)
 	$(CXX) $(OBJS) $(LDFLAGS) -o $@
 
 ifeq ($(ALGO_RTOS),1)

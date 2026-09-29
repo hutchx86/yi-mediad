@@ -26,6 +26,7 @@ struct mediad_venc_cfg {
     int nr3d;                 /* encoder 3D-filter level 0-3 (rmm: 3) */
     int fastenc;
     int chn;                  /* encoder channel index (FWM_VENC_PARAM_CHANNEL) */
+    int codec;                /* 0 = H.264 (default), 1 = H.265/HEVC */
 };
 
 /* One encoded frame. FreeOneBitStreamFrame needs fwm_venc_output_frame_t back

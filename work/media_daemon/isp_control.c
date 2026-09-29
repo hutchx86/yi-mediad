@@ -103,6 +103,9 @@ void isp_control_set_orientation(int base_mirror, int base_flip)
 }
 static int set_bitrate(int d, int v)    { (void)d; return mediad_set_bitrate("high", (unsigned)v); }
 static int get_bitrate(int d, int *v)   { (void)d; *v = (int)mediad_get_bitrate("high"); return 0; }
+/* Video codec, both channels: 0 = H.264, 1 = H.265/HEVC (Protect selects it). */
+static int set_codec(int d, int v)      { (void)d; return mediad_set_codec("all", v); }
+static int get_codec(int d, int *v)     { (void)d; *v = mediad_get_codec("high"); return 0; }
 
 /* Burned-in OSD (osd.c). Keys are int-valued; the camera name is a string
  * sourced from MEDIAD_OSD_NAME / the device-name file. */
@@ -450,6 +453,9 @@ static struct ctl g_controls[] = {
     /* HIGH encoder bitrate (bps), driven by Protect's bitRateCbrAvg/VbrMax;
      * LOW stays at its fixed 0.7 Mbps. */
     { "bitrate",     0, 48000, 4000000, 2800000, set_bitrate,     get_bitrate },
+    /* Video codec: 0 = H.264, 1 = H.265/HEVC. Both channels switch; the change
+     * re-creates the encoder on each channel's own thread at a frame boundary. */
+    { "codec",       0,                  0,   1,   0,   set_codec,      get_codec },
     /* HDR / frequency are aliases for the raw wdr/flicker controls (the
      * caller does the UI encoding). */
     { "hdr",         0,                  0,   255, 0,   set_wdr,         get_wdr, 1 },

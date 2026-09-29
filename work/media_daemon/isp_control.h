@@ -18,6 +18,11 @@
  * main.c. Clamped to [48 k, 3 M] internally. Used by the `bitrate` control. */
 int mediad_set_bitrate(const char *name, unsigned int bps);
 unsigned int mediad_get_bitrate(const char *name);
+/* Video codec by channel name ("high"/"low"/"all"): 0 = H.264, 1 = H.265/HEVC.
+ * A change re-creates that channel's encoder on its own thread at the next
+ * frame boundary. Used by the `codec` control (Protect ChangeVideoSettings). */
+int mediad_set_codec(const char *name, int codec);
+int mediad_get_codec(const char *name);
 int mediad_set_venc3d(int level);     /* encoder 3D filter, all channels */
 int mediad_get_venc3d(void);
 

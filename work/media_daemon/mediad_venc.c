@@ -18,6 +18,7 @@ struct mediad_venc {
     int stride;
     int chn;
     int crop_x, crop_y;       /* input window offset, -1 = off */
+    int codec;                /* 0 = H.264, 1 = H.265/HEVC */
 };
 
 static uint64_t now_us(void)
@@ -48,6 +49,40 @@ static void apply_defaults(struct mediad_venc *v, const struct mediad_venc_cfg *
     int bitrate = cfg->bitrate;
     int ifilter = 0;
     int fastenc = cfg->fastenc ? 1 : 0;
+
+    if (v->codec == 1) {
+        /* H.265/HEVC. The clean H.265 device forces idr/intra 40 and gop 20
+         * regardless; the rest maps from the same config. */
+        fwm_venc_h265_config_t h;
+
+        memset(&h, 0, sizeof(h));
+        h.profile_level.profile = FWM_VENC_H265_PROFILE_MAIN;
+        h.profile_level.level = 123;                 /* level 4.1 */
+        h.frame_rate = fps;
+        h.source_frame_rate = fps;
+        h.bitrate = bitrate;
+        h.idr_period = 40;
+        h.intra_period = 40;
+        h.gop_size = 20;
+        h.qp_init = 26;
+        h.rc_mode = (cfg->rc_mode == 2) ? FWM_VENC_H265_RC_ABR
+                  : (cfg->rc_mode == 1) ? FWM_VENC_H265_RC_VBR
+                                        : FWM_VENC_H265_RC_CBR;
+        h.qp_range.qp_min = cfg->min_qp > 0 ? cfg->min_qp : 10;
+        h.qp_range.qp_max = cfg->max_qp > 0 ? cfg->max_qp : 40;
+        h.vbr.max_bitrate = (unsigned int)bitrate;
+        h.vbr.motion_threshold = 20;
+        h.vbr.quality = 10;
+        h.gop.gop_control_en = 1;
+        h.gop.gop_mode = FWM_VENC_H265_GOP_NORMAL_P;
+        h.gop.gop_size = 20;
+        VideoEncSetParameter(v->enc, FWM_VENC_PARAM_H265_CONFIG, &h);
+        VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FRAME_RATE, &fps);
+        VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE, &bitrate);
+        fprintf(stderr, "[venc] chn=%d H.265 Main fps=%d bps=%d gop=20 qp %d..%d\n",
+                cfg->chn, fps, bitrate, h.qp_range.qp_min, h.qp_range.qp_max);
+        return;
+    }
 
     memset(&h264, 0, sizeof(h264));
     h264.coding_mode = FWM_VENC_CODING_FRAME;
@@ -151,8 +186,9 @@ struct mediad_venc *mediad_venc_open(const struct mediad_venc_cfg *cfg)
     v->crop_x = cfg->crop_x;
     v->crop_y = cfg->crop_y;
     v->chn = cfg->chn;
+    v->codec = cfg->codec ? 1 : 0;
 
-    v->enc = VideoEncCreate(FWM_VENC_CODEC_H264);
+    v->enc = VideoEncCreate(v->codec ? FWM_VENC_CODEC_H265 : FWM_VENC_CODEC_H264);
     if (v->enc == NULL) {
         fprintf(stderr, "[venc] create failed\n");
         free(v);
@@ -208,7 +244,8 @@ int mediad_venc_spspps(struct mediad_venc *v, unsigned char *out, size_t out_cap
     if (v == NULL || v->enc == NULL || out == NULL)
         return 0;
     memset(&h, 0, sizeof(h));
-    if (VideoEncGetParameter(v->enc, FWM_VENC_PARAM_H264_SPS_PPS, &h) != 0 ||
+    if (VideoEncGetParameter(v->enc,
+            v->codec ? FWM_VENC_PARAM_H265_HEADER : FWM_VENC_PARAM_H264_SPS_PPS, &h) != 0 ||
         h.data == NULL || h.length == 0 || (size_t)h.length > out_cap)
         return 0;
     memcpy(out, h.data, h.length);
