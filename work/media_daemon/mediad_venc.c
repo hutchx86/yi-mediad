@@ -79,8 +79,16 @@ static void apply_defaults(struct mediad_venc *v, const struct mediad_venc_cfg *
         VideoEncSetParameter(v->enc, FWM_VENC_PARAM_H265_CONFIG, &h);
         VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FRAME_RATE, &fps);
         VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE, &bitrate);
-        fprintf(stderr, "[venc] chn=%d H.265 Main fps=%d bps=%d gop=20 qp %d..%d\n",
-                cfg->chn, fps, bitrate, h.qp_range.qp_min, h.qp_range.qp_max);
+        VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FAST_ENCODE, &fastenc);
+        {
+            /* Encoder 3D filter (not the ISP's tdf); must precede init so the
+             * dynamic-ME latch matches the H.264 path. */
+            unsigned char nr3d = (unsigned char)(cfg->nr3d < 0 ? 0 : cfg->nr3d);
+            VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FILTER_3D, &nr3d);
+        }
+        fprintf(stderr, "[venc] chn=%d H.265 Main fps=%d bps=%d gop=20 qp %d..%d 3dfilter=%d\n",
+                cfg->chn, fps, bitrate, h.qp_range.qp_min, h.qp_range.qp_max,
+                (cfg->nr3d < 0 ? 0 : cfg->nr3d));
         return;
     }
 
