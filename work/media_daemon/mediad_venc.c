@@ -86,6 +86,20 @@ static void apply_defaults(struct mediad_venc *v, const struct mediad_venc_cfg *
             unsigned char nr3d = (unsigned char)(cfg->nr3d < 0 ? 0 : cfg->nr3d);
             VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FILTER_3D, &nr3d);
         }
+        /* Shown window smaller than the coded picture (SPS conformance window),
+         * as on the H.264 path; before init, which builds the SPS. */
+        if (cfg->out_w > 0 && cfg->out_h > 0) {
+            fwm_venc_display_size_t show = { cfg->out_w, cfg->out_h };
+            if (VideoEncSetParameter(v->enc, FWM_VENC_PARAM_DISPLAY_SIZE, &show) != 0)
+                fprintf(stderr, "[venc] chn=%d display size %dx%d not supported\n",
+                        cfg->chn, cfg->out_w, cfg->out_h);
+            if (cfg->out_x >= 0 || cfg->out_y >= 0) {
+                fwm_venc_display_offset_t off = { cfg->out_x, cfg->out_y };
+                if (VideoEncSetParameter(v->enc, FWM_VENC_PARAM_DISPLAY_OFFSET, &off) != 0)
+                    fprintf(stderr, "[venc] chn=%d display offset %d,%d not supported\n",
+                            cfg->chn, cfg->out_x, cfg->out_y);
+            }
+        }
         fprintf(stderr, "[venc] chn=%d H.265 Main fps=%d bps=%d gop=20 qp %d..%d 3dfilter=%d\n",
                 cfg->chn, fps, bitrate, h.qp_range.qp_min, h.qp_range.qp_max,
                 (cfg->nr3d < 0 ? 0 : cfg->nr3d));
