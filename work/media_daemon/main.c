@@ -33,6 +33,7 @@
 #include "talkback.h"
 #include "mediad_audio.h"
 #include "mediad_venc.h"
+#include "mediad_hevc.h"
 #include "osd.h"
 #include "rmm_tuning.h"
 #ifdef MEDIAD_ALGO_RTOS
@@ -351,11 +352,63 @@ static unsigned int load_bitrate(const char *name)
     return 0;
 }
 
+/* Persisted per-channel codec, so a restart or reboot comes up in the codec the
+ * controller last selected instead of H.264 followed by a switch (that flip
+ * reconnects every stream and races the controller's stream bookkeeping).
+ * Precedence at start: MEDIAD_CODEC* env, then this file, then H.264. */
+#define MEDIAD_CODEC_FILE_DEFAULT "/tmp/sd/unifi/etc/mediad.codec"
+
+static const char *codec_file(void)
+{
+    const char *e = getenv("MEDIAD_CODEC_FILE");
+    return (e && e[0]) ? e : MEDIAD_CODEC_FILE_DEFAULT;
+}
+
+static int load_codec(const char *name)
+{
+    char line[64], key[32];
+    int v;
+    FILE *f = fopen(codec_file(), "r");
+
+    if (f == NULL)
+        return -1;
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "%31[^=]=%d", key, &v) == 2 && strcmp(key, name) == 0) {
+            fclose(f);
+            return v ? 1 : 0;
+        }
+    }
+    fclose(f);
+    return -1;
+}
+
+static void save_codec(const char *name, int codec)
+{
+    int h = load_codec("high"), l = load_codec("low");
+    FILE *f;
+
+    if (strcmp(name, "high") == 0) h = codec ? 1 : 0;
+    else l = codec ? 1 : 0;
+    f = fopen(codec_file(), "w");
+    if (f == NULL)
+        return;
+    if (h >= 0) fprintf(f, "high=%d\n", h);
+    if (l >= 0) fprintf(f, "low=%d\n", l);
+    fclose(f);
+}
+
 static unsigned int clamp_bitrate(unsigned int bps)
 {
     if (bps < MEDIAD_BITRATE_MIN) bps = MEDIAD_BITRATE_MIN;
     if (bps > MEDIAD_BITRATE_MAX) bps = MEDIAD_BITRATE_MAX;
     return bps;
+}
+
+/* H.265 rate target (policy in mediad_hevc.c): HIGH channel 2 Mbps by default,
+ * the low channel follows the controller. */
+static unsigned int hevc_bitrate(const char *chan, unsigned int controller_bps)
+{
+    return mediad_hevc_bitrate(chan, controller_bps, MEDIAD_BITRATE_MIN, MEDIAD_BITRATE_MAX);
 }
 
 int mediad_set_bitrate(const char *name, unsigned int bps)
@@ -369,7 +422,9 @@ int mediad_set_bitrate(const char *name, unsigned int bps)
         if (bps == g_chans[i].bitrate)
             return 0;
         pthread_mutex_lock(&g_chans[i].vencMu);
-        int rc = g_chans[i].venc ? mediad_venc_set_bitrate(g_chans[i].venc, (int)bps) : -1;
+        int rc = g_chans[i].venc
+            ? mediad_venc_set_bitrate(g_chans[i].venc,
+                  (int)(g_chans[i].codec == 1 ? hevc_bitrate(g_chans[i].name, bps) : bps)) : -1;
         pthread_mutex_unlock(&g_chans[i].vencMu);
         if (rc != 0)
             return -1;
@@ -409,7 +464,7 @@ unsigned int mediad_get_bitrate(const char *name)
     int i;
     for (i = 0; i < NCHAN; i++)
         if (strcmp(g_chans[i].name, name) == 0)
-            return g_chans[i].bitrate;
+            return g_chans[i].codec == 1 ? hevc_bitrate(g_chans[i].name, g_chans[i].bitrate) : g_chans[i].bitrate;
     return 0;
 }
 
@@ -664,6 +719,7 @@ static void *get_stream_thread(void *arg)
             ch->spspps = NULL;
             ch->spspps_len = 0;
             ch->codec = nc;
+            save_codec(ch->name, nc);
             if (venc_start(ch) < 0)
                 fprintf(stderr, "[%s] codec switch failed\n", ch->name);
             else
@@ -962,6 +1018,9 @@ static int venc_start(media_chan *ch)
         }
         if ((e = getenv("MEDIAD_FASTENC"))) cfg.fastenc = atoi(e);
         cfg.codec = ch->codec;   /* set from env at startup, or by a codec switch */
+        if (cfg.codec == 1)   /* own rate target, QP window and RC mode */
+            mediad_hevc_apply_channel_cfg(&cfg, ch->name, ch->bitrate,
+                                          MEDIAD_BITRATE_MIN, MEDIAD_BITRATE_MAX);
         fprintf(stderr, "[%s] venc codec=%s profile=%d rc=%s minqp=%d maxqp=%d gop=%d 3dnr=%d\n",
                 ch->name, cfg.codec ? "h265" : "h264", cfg.profile,
                 cfg.rc_mode == 0 ? "cbr" : (cfg.rc_mode == 2 ? "avbr" : "vbr"),
@@ -1125,8 +1184,13 @@ int main(void)
                                 ? "MEDIAD_CODEC_HIGH" : "MEDIAD_CODEC_LOW");
         if (!ce)
             ce = getenv("MEDIAD_CODEC");
-        if (ce)
+        if (ce) {
             g_chans[i].codec = (strcmp(ce, "h265") == 0 || atoi(ce) == 1) ? 1 : 0;
+        } else {
+            int pc = load_codec(g_chans[i].name);
+            if (pc >= 0)
+                g_chans[i].codec = pc;
+        }
         g_chans[i].pending_codec = -1;
     }
 

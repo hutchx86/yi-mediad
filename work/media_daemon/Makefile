@@ -152,7 +152,7 @@ CFLAGS := $(CFG_DEFS) $(INC) -I$(BUILD) -Wall -Wno-unused-but-set-variable -Wno-
     $(EXTRA_CFLAGS)
 CXXFLAGS := $(CFLAGS)
 
-SRC_APP := main.c stub_audio_components.c fshare.c audio_codec.c mediad_audio.c mediad_venc.c talkback.c osd.c stock_reg.c isp_control.c isp_config.c rmm_tuning.c
+SRC_APP := main.c stub_audio_components.c fshare.c audio_codec.c mediad_audio.c mediad_venc.c mediad_hevc.c talkback.c osd.c stock_reg.c isp_control.c isp_config.c rmm_tuning.c
 
 # STOCK_REG=1: replay a locally captured register table (tools/make_stock_reg.py).
 ifeq ($(STOCK_REG),1)
@@ -607,3 +607,11 @@ clean:
 	rm -rf $(BUILD) $(TARGET) mediad_ctl rmm_extract
 
 -include $(OBJS:.o=.d)
+
+# Host test of the H.265 policy/setup unit (stub encoder, no hardware).
+FW_ROOT_T := $(abspath ../../../../freewinner/freewinner-git)
+.PHONY: test-hevc
+test-hevc: tests/test_hevc.c mediad_hevc.c mediad_hevc.h
+	cc -std=gnu11 -Wall -I. -I$(FW_ROOT_T)/mw_headers -I$(FW_ROOT_T)/codec/include -o /tmp/mediad_test_hevc tests/test_hevc.c mediad_hevc.c
+	/tmp/mediad_test_hevc
+	rm -f /tmp/mediad_test_hevc

@@ -53,6 +53,23 @@ yi-protect's settings page (see the README).
 | `MEDIAD_FASTENC` | 0 | Encoder fast-encode flag. |
 | `MEDIAD_LOW` | unset | `0`: HIGH channel only. |
 
+## H.265/HEVC (`mediad_hevc.c`)
+
+Applies only while a channel encodes H.265. `MEDIAD_MINQP`/`MEDIAD_MAXQP`/`MEDIAD_RC` above
+are H.264-only; H.265 has its own window. The startup codec is `MEDIAD_CODEC_HIGH`/`_LOW`/
+`MEDIAD_CODEC`, else the last one Protect selected (`etc/mediad.codec`, path override
+`MEDIAD_CODEC_FILE`), else H.264.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MEDIAD_HEVC_LEVEL` | 150 | Declared `general_level_idc` (150 = 5.0; 2304x1296 exceeds 4.1). Out of 90..186 falls back to 150. |
+| `MEDIAD_HEVC_IDR` | 100 | Key interval in frames (a multiple of 20, 40..200; 100 = 5 s at 20 fps). Other values fall back to 40. |
+| `MEDIAD_HEVC_VUI` | on | `0` omits the VUI timing info (1000 / fps*1000) from the SPS. |
+| `MEDIAD_HEVC_BITRATE` | 2000000 | High-channel target in bps; `0` follows the controller. The low channel always follows the controller. |
+| `MEDIAD_HEVC_TRACK` | high only | `1`/`0` forces closed-loop rate control on all channels / none. The vendor-model RC collapses to the QP ceiling on a quiet scene and never spends the target. |
+| `MEDIAD_HEVC_RC` | 0 (CBR) | Rate-control mode, as `MEDIAD_RC`. |
+| `MEDIAD_HEVC_MINQP`, `MEDIAD_HEVC_MAXQP` | 18 / 45 | QP window. |
+
 ## Audio
 
 | Variable | Default | Effect |

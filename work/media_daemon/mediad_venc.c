@@ -11,6 +11,7 @@
 #include "freecodec/venc_ext.h"
 
 #include "mediad_venc.h"
+#include "mediad_hevc.h"
 
 struct mediad_venc {
     fwm_venc_handle_t *enc;
@@ -51,58 +52,7 @@ static void apply_defaults(struct mediad_venc *v, const struct mediad_venc_cfg *
     int fastenc = cfg->fastenc ? 1 : 0;
 
     if (v->codec == 1) {
-        /* H.265/HEVC. The clean H.265 device forces idr/intra 40 and gop 20
-         * regardless; the rest maps from the same config. */
-        fwm_venc_h265_config_t h;
-
-        memset(&h, 0, sizeof(h));
-        h.profile_level.profile = FWM_VENC_H265_PROFILE_MAIN;
-        h.profile_level.level = 123;                 /* level 4.1 */
-        h.frame_rate = fps;
-        h.source_frame_rate = fps;
-        h.bitrate = bitrate;
-        h.idr_period = 40;
-        h.intra_period = 40;
-        h.gop_size = 20;
-        h.qp_init = 26;
-        h.rc_mode = (cfg->rc_mode == 2) ? FWM_VENC_H265_RC_ABR
-                  : (cfg->rc_mode == 1) ? FWM_VENC_H265_RC_VBR
-                                        : FWM_VENC_H265_RC_CBR;
-        h.qp_range.qp_min = cfg->min_qp > 0 ? cfg->min_qp : 10;
-        h.qp_range.qp_max = cfg->max_qp > 0 ? cfg->max_qp : 40;
-        h.vbr.max_bitrate = (unsigned int)bitrate;
-        h.vbr.motion_threshold = 20;
-        h.vbr.quality = 10;
-        h.gop.gop_control_en = 1;
-        h.gop.gop_mode = FWM_VENC_H265_GOP_NORMAL_P;
-        h.gop.gop_size = 20;
-        VideoEncSetParameter(v->enc, FWM_VENC_PARAM_H265_CONFIG, &h);
-        VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FRAME_RATE, &fps);
-        VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE, &bitrate);
-        VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FAST_ENCODE, &fastenc);
-        {
-            /* Encoder 3D filter (not the ISP's tdf); must precede init so the
-             * dynamic-ME latch matches the H.264 path. */
-            unsigned char nr3d = (unsigned char)(cfg->nr3d < 0 ? 0 : cfg->nr3d);
-            VideoEncSetParameter(v->enc, FWM_VENC_PARAM_FILTER_3D, &nr3d);
-        }
-        /* Shown window smaller than the coded picture (SPS conformance window),
-         * as on the H.264 path; before init, which builds the SPS. */
-        if (cfg->out_w > 0 && cfg->out_h > 0) {
-            fwm_venc_display_size_t show = { cfg->out_w, cfg->out_h };
-            if (VideoEncSetParameter(v->enc, FWM_VENC_PARAM_DISPLAY_SIZE, &show) != 0)
-                fprintf(stderr, "[venc] chn=%d display size %dx%d not supported\n",
-                        cfg->chn, cfg->out_w, cfg->out_h);
-            if (cfg->out_x >= 0 || cfg->out_y >= 0) {
-                fwm_venc_display_offset_t off = { cfg->out_x, cfg->out_y };
-                if (VideoEncSetParameter(v->enc, FWM_VENC_PARAM_DISPLAY_OFFSET, &off) != 0)
-                    fprintf(stderr, "[venc] chn=%d display offset %d,%d not supported\n",
-                            cfg->chn, cfg->out_x, cfg->out_y);
-            }
-        }
-        fprintf(stderr, "[venc] chn=%d H.265 Main fps=%d bps=%d gop=20 qp %d..%d 3dfilter=%d\n",
-                cfg->chn, fps, bitrate, h.qp_range.qp_min, h.qp_range.qp_max,
-                (cfg->nr3d < 0 ? 0 : cfg->nr3d));
+        mediad_hevc_configure(v->enc, cfg, fps, bitrate, fastenc);
         return;
     }
 
