@@ -2,9 +2,10 @@
 
 `mediad` reads these at startup. On a yi-protect card, set them in
 `unifi/etc/mediad.env` (`export KEY=value` lines), which `mediad.sh` sources
-before each start; per-model files (`unifi/etc/mediad.<model>.env`) are sourced
-after it and win. Most are bring-up and diagnostic knobs: the defaults are the
-tested configuration.
+before each start; a per-model file (`unifi/etc/mediad.<model>.env`), if present,
+is sourced after it and wins. Capture/encode geometry no longer needs one: it is
+keyed on the model by default (see below). Most of these are bring-up and
+diagnostic knobs: the defaults are the tested configuration.
 
 Picture controls (brightness, denoise, night vision, ...) are not environment
 variables: set them over the control socket, in `mediad.conf`, or from
@@ -27,10 +28,10 @@ yi-protect's settings page (see the README).
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `MEDIAD_SENSOR` | live sensor name (V4L2 subdev) | Override the detected sensor, e.g. `gc2053_mipi`. |
-| `MEDIAD_MODEL` | `unifi/etc/model_suffix` | Override the model (selects mounting orientation). |
+| `MEDIAD_MODEL` | `unifi/etc/model_suffix` | Override the model (selects geometry and mounting orientation). |
 | `MEDIAD_MIRROR`, `MEDIAD_FLIP` | per model | Mounting orientation base (0/1). |
-| `MEDIAD_CAP_W`, `MEDIAD_CAP_H` | per sensor | HIGH capture size. |
-| `MEDIAD_PIC_W`, `MEDIAD_PIC_H` | per sensor | HIGH encoded size. |
+| `MEDIAD_CAP_W`, `MEDIAD_CAP_H` | per model (sensor fallback) | HIGH capture size. |
+| `MEDIAD_PIC_W`, `MEDIAD_PIC_H` | per model (sensor fallback) | HIGH encoded size. |
 | `MEDIAD_CROP_X`, `MEDIAD_CROP_Y` | unset | HIGH: encode a PIC_W x PIC_H window of the capture at this offset (no scaling). |
 | `MEDIAD_OUT_W`, `MEDIAD_OUT_H` | encoded size | HIGH displayed size (SPS crop). |
 | `MEDIAD_OUT_X`, `MEDIAD_OUT_Y` | centred | Offset of that window (even pixels). |

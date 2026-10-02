@@ -116,17 +116,20 @@ Allwinner **sun8iw19**, ~60 MB RAM, BusyBox userland. Supported and tested:
 | --- | --- | --- | --- |
 | `y623` | Yi **Pro 2k** (PCB may read `y621`) | `gc3003_mipi` | 2304x1296 |
 | `h52ga` | Yi **Dome Camera U** (Full HD) | `gc2053_mipi` | 1920x1080 |
-| `r35gb` | Yi **Dome Guard** | `gc2053_mipi` | 1920x1080; mounted rotated 180°, capture cropped by `vin_crop_shim.so` (`mediad.r35gb.env`) |
+| `h51ga` | Yi (2K stock) | `gc2053_mipi` | 1920x1080 (native; stock rmm upscales it to 2K) |
+| `r35gb` | Yi **Dome Guard** | `gc2053_mipi` | 1920x1080; mounted rotated 180° (per-model orientation) |
 
 Other sun8iw19 models may work: an unknown sensor gets a best-effort 16:9
 geometry.
 
-The **sensor** is read at boot from the live ISP
-(`/sys/class/video4linux/v4l-subdev*/name`, e.g. `gc3003_mipi`, `gc2053_mipi`)
-and the **model** from the platform's `model_suffix` file (written by
-yi-protect). Geometry is keyed on the sensor and only the mounting orientation
-(mirror/flip) on the model — the model is never inferred from the sensor, since
-several models can share one sensor (`r35gb` and `h52ga` both use `gc2053_mipi`).
+The **model** is read from the platform's `model_suffix` file (written by
+yi-protect) and the **sensor** from the live ISP
+(`/sys/class/video4linux/v4l-subdev*/name`, e.g. `gc3003_mipi`, `gc2053_mipi`).
+Geometry is keyed on the **model** (a built-in `g_models` capture/encode row),
+because several models share one sensor yet stream different sizes: `r35gb` and
+`h52ga` are both `gc2053_mipi`, and h51ga's stock rmm output is 2K while h52ga's
+is 1080p. The sensor row is only the fallback for an unlisted model; mounting
+orientation is likewise per model.
 
 ## How it works
 
@@ -150,7 +153,7 @@ but contributes no object to the binary.
 | `rmm_tuning.{c,h}` | On-camera tuning extraction from `/home/app/rmm` (+ SD cache). |
 | `stock_reg.c` | Optional stock register-table replay wrapper. |
 | `tools/`, `rmm_extract.c` | Extractor CLI, `mediad_ctl`, layout/build tools. |
-| `../vin_crop_shim/` | `LD_PRELOAD` capture crop used by `r35gb`. |
+| `../vin_crop_shim/` | Optional `LD_PRELOAD` capture crop; not used by the default per-model geometry (the gc2053 models capture native 1920x1080). |
 
 ## Build
 
@@ -197,11 +200,14 @@ dist/
                              COPYING-FAAC, SOURCE.txt (exact source revisions)
   unifi/bin/mediad           stripped deploy build
   unifi/etc/mediad.conf      default settings (installed only if absent)
-  unifi/etc/mediad.r35gb.env per-model settings (always refreshed)
   unifi/script/mediad.sh     start/stop/restart/status/candidate
   unifi/lib/libvenc_base.so  clean-room encoder support (found via $ORIGIN/../lib)
-  unifi/lib/vin_crop_shim.so capture crop, preloaded by mediad.r35gb.env
+  unifi/lib/vin_crop_shim.so optional capture crop (LD_PRELOAD; not used by default)
 ```
+
+Capture/encode geometry is keyed on the model in the daemon (`g_models`), so no
+per-model `.env` ships; a `unifi/etc/mediad.<model>.env` still overrides if you
+drop one in.
 
 ## Install
 
