@@ -142,6 +142,26 @@ static const sensor_geo g_sensors[] = {
     { "gc2053_mipi", 1936, 1096, 1920, 1080, 0 },
 };
 
+/* Per-model HIGH geometry, applied over the sensor default: a model's real
+ * output size is a model fact, not a sensor fact (h51ga and h52ga are both
+ * gc2053_mipi yet their real streams differ). The sensor row stays the fallback
+ * for an unlisted model; MEDIAD_CAP_W/H and MEDIAD_PIC_W/H still override both. */
+typedef struct {
+    const char *model;
+    int cap_w, cap_h;   /* VI capture */
+    int pic_w, pic_h;   /* encoded */
+} model_geo;
+
+static const model_geo g_models[] = {
+    { "y623",   2304, 1296, 2304, 1296 },
+    { "h51ga",  1920, 1080, 1920, 1080 },
+    { "h52ga",  1920, 1080, 1920, 1080 },
+    { "r35gb",  1920, 1080, 1920, 1080 },
+    { "y291ga", 1920, 1080, 1920, 1080 },
+};
+
+static void read_model_suffix(char *out, size_t n);
+
 static int g_sensor_known;
 static int g_sensor_wdr = 1;    /* sensor-table fallback */
 static char g_sensor[64];       /* live sensor name */
@@ -187,6 +207,7 @@ static void read_sensor_name(char *out, size_t n)
 static void apply_geometry(void)
 {
     int cap_w = 2304, cap_h = 1296, pic_w = 2304, pic_h = 1296;
+    char model[64];
     const char *e;
     size_t i;
 
@@ -202,6 +223,19 @@ static void apply_geometry(void)
             break;
         }
     }
+
+    /* A listed model wins over the sensor default. */
+    read_model_suffix(model, sizeof(model));
+    for (i = 0; i < sizeof(g_models) / sizeof(g_models[0]); i++) {
+        if (model[0] && strcmp(model, g_models[i].model) == 0) {
+            cap_w = g_models[i].cap_w;
+            cap_h = g_models[i].cap_h;
+            pic_w = g_models[i].pic_w;
+            pic_h = g_models[i].pic_h;
+            break;
+        }
+    }
+
     if ((e = getenv("MEDIAD_CAP_W")) && e[0]) cap_w = atoi(e);
     if ((e = getenv("MEDIAD_CAP_H")) && e[0]) cap_h = atoi(e);
     if ((e = getenv("MEDIAD_PIC_W")) && e[0]) pic_w = atoi(e);
@@ -210,9 +244,10 @@ static void apply_geometry(void)
     g_chans[0].cap_h = cap_h;
     g_chans[0].pic_w = pic_w;
     g_chans[0].pic_h = pic_h;
-    fprintf(stderr, "mediad: sensor=%s (%s) high cap=%dx%d pic=%dx%d\n",
+    fprintf(stderr, "mediad: sensor=%s (%s) model=%s high cap=%dx%d pic=%dx%d\n",
             g_sensor[0] ? g_sensor : "(unknown)",
             g_sensor_known ? "known" : "best-effort",
+            model[0] ? model : "(unset)",
             cap_w, cap_h, pic_w, pic_h);
 }
 

@@ -41,7 +41,9 @@ mkdir -p dist/unifi/bin dist/unifi/etc dist/unifi/script dist/unifi/lib
 cp work/media_daemon/mediad_rtos_v dist/unifi/bin/mediad
 "$STRIP" dist/unifi/bin/mediad 2>/dev/null || true
 cp package/unifi/etc/mediad.conf dist/unifi/etc/mediad.conf
-cp package/unifi/etc/mediad.*.env dist/unifi/etc/
+for env in package/unifi/etc/mediad.*.env; do
+    [ -f "$env" ] && cp "$env" dist/unifi/etc/
+done
 cp package/unifi/script/mediad.sh dist/unifi/script/mediad.sh
 cp package/install.sh dist/install-mediad.sh
 cp package/README.md dist/README.md
