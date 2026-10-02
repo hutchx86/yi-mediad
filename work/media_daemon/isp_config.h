@@ -26,7 +26,6 @@ int isp_config_set_tdf(int on);       /* 0/1 module enable (enable3dnr); 1 == st
 /* Day/night ISP tuning swap: 0 = load the day config, 1 = the night config
  * (both extracted from the device's rmm.bin), then re-run the config path. */
 int isp_config_set_daynight(int night);
-int isp_config_get_daynight(void);
 int isp_config_get_saturation(void);
 int isp_config_get_hue(void);
 int isp_config_get_brightness(void);

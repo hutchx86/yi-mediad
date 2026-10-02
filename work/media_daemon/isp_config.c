@@ -498,8 +498,6 @@ int isp_config_set_daynight(int night)
     return 0;
 }
 
-int isp_config_get_daynight(void) { return g_daynight; }
-
 int isp_config_get_saturation(void) { return g_saturation; }
 int isp_config_get_hue(void)        { return g_hue; }
 int isp_config_get_sharpness(void)  { return g_sharpness; }

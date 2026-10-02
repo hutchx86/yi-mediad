@@ -632,16 +632,3 @@ int osd_get(int key)
     return g_ctl[key];
 }
 
-void osd_set_name(const char *name)
-{
-    if (!name)
-        return;
-    snprintf(g_name, sizeof(g_name), "%s", name);
-    osd_refresh();
-}
-
-const char *osd_get_name(void)
-{
-    return g_name;
-}
-

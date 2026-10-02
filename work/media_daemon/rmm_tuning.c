@@ -162,10 +162,6 @@ const unsigned char *rmm_tuning_blob(int ir, unsigned int *len) {
     return g_blob[ir];
 }
 
-int rmm_tuning_wdr(void) {
-    return g_wdr;
-}
-
 /* Day-entry WDR flag for `sensor`, straight from rmm: rmm_tuning_load may be
  * served from the SD cache and leave g_wdr unset. */
 int rmm_tuning_probe_wdr(const char *rmm_path, const char *sensor) {

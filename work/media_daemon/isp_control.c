@@ -718,11 +718,6 @@ static const struct ctl *find_ctl(const char *key)
     return NULL;
 }
 
-unsigned int isp_control_overlay_mask(void)
-{
-    return g_mask;
-}
-
 /* Copy the masked module-register ranges from our computed table onto the
  * replayed stock table. Runs every load-reg (isp.c:217), i.e. once per frame. */
 void isp_control_apply_overlay(unsigned char *dst, const unsigned char *computed,

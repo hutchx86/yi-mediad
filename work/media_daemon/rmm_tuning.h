@@ -20,10 +20,6 @@ int rmm_tuning_load(const char *rmm_path, const char *sensor, const char *cache_
  * next extract/load. */
 const unsigned char *rmm_tuning_blob(int ir, unsigned int *len);
 
-/* WDR flag of the extracted entry (0 linear, 2 WDR; -1 before extraction): the
- * authoritative capture WDR mode, which varies per model for one sensor. */
-int rmm_tuning_wdr(void);
-
 /* Day-entry WDR flag for `sensor` read directly from rmm_path (0, 2 or -1),
  * even when rmm_tuning_load would serve the SD cache. */
 int rmm_tuning_probe_wdr(const char *rmm_path, const char *sensor);

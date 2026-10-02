@@ -271,7 +271,6 @@ int mediad_venc_encode(struct mediad_venc *v, const struct cov1 *cov,
                        struct mediad_venc_frame *out)
 {
     fwm_venc_input_picture_t in;
-    int ret;
 
     if (v == NULL || v->enc == NULL || cov == NULL || out == NULL)
         return -1;

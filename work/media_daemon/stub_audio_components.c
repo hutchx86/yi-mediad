@@ -205,13 +205,7 @@ int parser_ini_info(fwi_tuning_image_t *param, char *sensor_name,
          * ISP_TUNE_PARTS picks the sections, for bisection. */
         const fwi_tuning_image_t *v =
             (const fwi_tuning_image_t *)blob;
-        /* Native 521 (ISP_TUNE_NATIVE, always set by the Makefile): import it
-         * all. The legacy 2019 layout only maps the 3a and tunning sections. */
-#ifdef ISP_TUNE_NATIVE
         int p_test = 1, p_3a = 1, p_tun = 1, p_dyn = 1;
-#else
-        int p_test = 0, p_3a = 1, p_tun = 1, p_dyn = 0;
-#endif
         const char *parts = getenv("ISP_TUNE_PARTS");
         char *tok, *save = NULL;
 
@@ -244,20 +238,7 @@ int parser_ini_info(fwi_tuning_image_t *param, char *sensor_name,
         /* PLTM stays as the tuning sets it; ISP_TUNE_DISABLE=pltm turns it off. */
 #endif
 
-#ifndef ISP_TUNE_NATIVE
-        /* Legacy layout: its AE divides by zero in histogram mode, so force
-         * statistics mode. */
-        if (p_3a)
-            param->a3.ae_hist_mode_en = 0;
-#endif
     }
-
-#ifndef ISP_TUNE_NATIVE
-    /* Legacy layout: WDR merge and local tone mapping make its AE divide by
-     * zero. */
-    param->enables.wdr_merge_en = 0;
-    param->enables.local_tone_en = 0;
-#endif
 
     dis = getenv("ISP_TUNE_DISABLE");
     if (dis) {

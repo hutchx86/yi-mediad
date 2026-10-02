@@ -60,7 +60,6 @@ RMM_ABI = $(if $(filter 1,$(ALGO_RTOS)),short,long)
 # MPP feature macros: VI + ISP + VENC only.
 CFG_DEFS := \
     -DAWCHIP=0x1817 \
-    -DISP_TUNE_NATIVE=1 \
     -DCONF_USE_IOMMU=1 \
     -DCDXCFG_FILE_SYSTEM=0 \
     -DCDXCFG_HW_DISPLAY=0 \

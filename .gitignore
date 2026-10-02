@@ -16,7 +16,6 @@ __pycache__/
 work/media_daemon/build/
 work/media_daemon/build-*/
 work/media_daemon/mediad
-work/media_daemon/mediad-isp521
 work/media_daemon/mediad_ctl
 work/media_daemon/rmm_extract
 # Every mediad_* build product (ALGO_RTOS, vendor-linked and A/B experiment
@@ -42,9 +41,3 @@ work/media_daemon/prebuilt/
 
 # assembled SD-card package (package.sh)
 /dist/
-
-# freewinner framework/media-utils A/B experiment binaries
-work/media_daemon/mediad_fw_*
-
-# y623 A/B experiment target binaries (make TARGET=mediad_y623_*)
-work/media_daemon/mediad_y623*

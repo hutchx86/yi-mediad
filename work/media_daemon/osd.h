@@ -46,9 +46,4 @@ void osd_refresh(void);
 int osd_set(int key, int value);
 int osd_get(int key);
 
-/* Camera name source (Protect's ChangeOsdSettings.tag); empty resets to the
- * default (env / device-name file / model). */
-void osd_set_name(const char *name);
-const char *osd_get_name(void);
-
 #endif /* MEDIAD_OSD_H */

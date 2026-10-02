@@ -45,9 +45,6 @@ int isp_control_start_webui(int port);
 /* Stop the listener and remove the socket. */
 void isp_control_stop(void);
 
-/* Current overlay mask (read by stock_reg.c every load-reg). */
-unsigned int isp_control_overlay_mask(void);
-
 /* Copy the masked control register ranges from `computed` onto `dst`. `len` is
  * the size of the smaller of the two buffers. Called from stock_reg.c. */
 void isp_control_apply_overlay(unsigned char *dst, const unsigned char *computed,
