@@ -10,7 +10,7 @@ usage() {
     cat <<'EOF'
 Usage: ./build.sh [-h] [--repos DIR] [--build]
 
-Fetches the musl cross toolchain, the Allwinner V833 SDK (sparse), FAAC, the
+Fetches the musl cross toolchain, the Allwinner V831 SDK (sparse), FAAC, the
 Melis-RTOS ISP algorithm archive and a link-time libasound.so, and initialises
 the ./freewinner submodule when the checkout has one.
 
@@ -82,7 +82,7 @@ TC_BIN="$TC_DIR/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain/bin"
 [ -x "$TC_BIN/arm-openwrt-linux-muslgnueabi-gcc" ] || \
     die "toolchain not found at $TC_BIN"
 
-say "Allwinner V833 SDK ($SDK_REPO)"
+say "Allwinner V831 SDK ($SDK_REPO)"
 SDK_DIR="$DEPS/lindenis-v833-softwinner"
 if [ -d "$SDK_DIR/.git" ]; then
     echo "  already present: $SDK_DIR"

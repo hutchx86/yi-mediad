@@ -2,7 +2,7 @@ yi-mediad
 ==============
 
 `mediad` - a drop-in replacement for the stock `rmm` media daemon on Yi
-(Allwinner sun8iw19p1 / V833-class) IP cameras: capture -> ISP -> hardware H.264
+(Allwinner sun8iw19p1 / V831-class) IP cameras: capture -> ISP -> hardware H.264
 encode -> the `/dev/shm/fshare_frame_buf` ring + mic AAC, plus the picture-control
 surface.
 

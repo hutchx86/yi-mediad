@@ -1,7 +1,7 @@
 # yi-mediad (Yi camera media daemon)
 
 A drop-in replacement for the stock **`rmm`** media daemon on Yi cameras running
-on the Allwinner platform — specifically the **sun8iw19p1 / V833-class** SoC
+on the Allwinner platform — specifically the **sun8iw19p1 / V831-class** SoC
 (y623, h52ga, r35gb, …). It is the media producer for the sister project,
 [**yi-protect**](https://github.com/hutchx86/yi-protect) (the UniFi Protect
 bridge).
@@ -54,7 +54,7 @@ see [Features](#features).
   the same ring (type `0x0100`), as stock `rmm` does. The AAC encoder is our own
   **freecodec** build over upstream FAAC.
 - **ISP pipeline** — the clean-room `freewinner` libisp framework, 3A and
-  register/config tiers, on the V833 (`sun8iw19p1`) ISP-521 ABI.
+  register/config tiers, on the V831 (`sun8iw19p1`) ISP-521 ABI.
 - **On-camera vendor tuning** — reads the camera's **own** OEM ISP config from
   `/home/app/rmm` at first init (test/3a/tunning/dynamic sections), remaps it to
   our struct, caches it on SD. **No blob or per-firmware address is compiled in.**
@@ -172,7 +172,7 @@ when the checkout has one), otherwise a sibling checkout at
 `../../freewinner/freewinner-git` relative to this repo. Override with
 `make FW_ROOT=/path/to/freewinner`.
 
-`build.sh` fetches the musl cross toolchain, the V833 SDK (sparse), FAAC, the
+`build.sh` fetches the musl cross toolchain, the V831 SDK (sparse), FAAC, the
 Melis RTOS ISP archive and a link-time `libasound.so` into `./repos/` and
 `work/media_daemon/prebuilt/` (both gitignored), and applies an SDK patch used
 only by the vendor comparison builds. The deploy build links none of the SDK:
@@ -286,7 +286,7 @@ AGPL-3.0-only as well.
 
 ## Credits
 
-- **[lindenis-org](https://github.com/lindenis-org)** — the Lindenis V833
+- **[lindenis-org](https://github.com/lindenis-org)** — the Lindenis V831
   Allwinner SDK (`eyesee-mpp`) and the musl cross-toolchain this builds against.
 - **[roleoroleo](https://github.com/roleoroleo)** — the `fshare` shared-memory
   framing and the original video-push path were reverse engineered with reference

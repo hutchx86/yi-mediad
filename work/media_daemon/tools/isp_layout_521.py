@@ -4,7 +4,7 @@
 public isp522 headers built with ISP_VERSION=521. Generated; do not hand-edit."""
 
 SIZES_520 = {'isp_test_param': 204, 'isp_3a_param': 5812, 'isp_tunning_param': 83192, 'isp_dynamic_param': 7736, 'isp_dynamic_config': 540}
-# 521 sizes from the V833 headers rmm was built with (the public isp522 branch
+# 521 sizes from the V831 headers rmm was built with (the public isp522 branch
 # differs by 12 B).
 SIZES_521 = {'isp_test_param': 216, 'isp_3a_param': 5836, 'isp_tunning_param': 118596, 'isp_dynamic_param': 8468, 'isp_dynamic_config': 592}
 
