@@ -61,7 +61,25 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          name: mediad overlay ${{ env.REV }}
+          name: mediad overlay ${{ env.TAG }}
+          body: |
+            Prebuilt **mediad** overlay for yi-protect (`${{ env.REV }}`).
+
+            `mediad` is the clean-room video engine that replaces the stock Yi
+            `rmm` encoder: it publishes the same `/dev/shm/fshare_frame_buf` ring,
+            adds H.264 + H.265, model-correct capture geometry and the advanced
+            picture controls, and links no vendor object.
+
+            **Install** on a camera that already runs yi-protect:
+
+            ```
+            tar xzf mediad-overlay-${{ env.REV }}.tar.gz -C /tmp/sd/mediad-overlay
+            sh /tmp/sd/mediad-overlay/install-mediad.sh      # SD root defaults to /tmp/sd
+            # reboot
+            ```
+
+            `IS_MEDIAD=auto` (the default) selects `mediad` on the next boot.
+            Verify the download against `SHA256SUMS`.
           files: |
             mediad-overlay-${{ env.REV }}.tar.gz
             SHA256SUMS
