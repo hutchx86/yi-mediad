@@ -56,12 +56,10 @@ yi-protect is already mediad-aware, it only copies files.
 - `mediad.sh start` sources `yi-protect/etc/mediad.env` (optional `export KEY=value`
   knobs, see the repo's `docs/env.md`) and then `mediad.<model>.env` if present,
   and logs each start to `/tmp/sd/mediad-pass-<n>.log`.
-- **Rollback guard:** the first start that produces frames saves
-  `yi-protect/bin/mediad.known-good`. If a later binary exits before producing
-  frames, `mediad.sh` restores the known-good one; a boot latch
-  (`yi-protect/.boot-pending`) does the same on the next boot if the camera hung.
-  `mediad.sh candidate <file>` installs a new binary under the same guard.
-  `MEDIAD_NO_ROLLBACK=1` disables it.
+- **No auto-rollback:** `mediad.sh` starts the installed binary directly and
+  leaves it in place whether or not it produces frames (a failing build is fixed
+  and redeployed, never silently reverted). `mediad.sh candidate <file>` installs
+  a new binary and starts it.
 - Picture settings: yi-protect's settings page (`http://<camera>/`, port
   `WEBUI_PORT` in `yi-protect.cfg`), Protect, or `yi-protect/etc/mediad.conf`, whose
   `key=value` lines are pinned against Protect's connect-time re-assert.

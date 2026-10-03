@@ -226,9 +226,9 @@ is untouched.
 The installer copies `yi-protect/{bin,etc,script,lib}`, sets `IS_MEDIAD=yes` in
 `yi-protect.cfg`, makes `init.sh` launch `mediad.sh start` instead of the stock
 `./rmm` and `watchdog.sh` watch `mediad`, keeping `.pre-mediad` backups. If
-yi-protect is already mediad-aware it only copies files. `mediad.sh` keeps a
-known-good copy of the binary and rolls back to it if a new one never produces
-frames. Details: [package/README.md](package/README.md).
+yi-protect is already mediad-aware it only copies files. `mediad.sh candidate
+<file>` installs a new binary and starts it, with no automatic rollback. Details:
+[package/README.md](package/README.md).
 
 ## Control surface
 

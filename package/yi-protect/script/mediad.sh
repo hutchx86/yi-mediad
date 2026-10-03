@@ -2,16 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
 
-# mediad.sh {start|stop|restart|status|candidate FILE} - run mediad under a
-# rollback guard (bin/mediad.known-good) and a boot latch; see package/README.md.
+# mediad.sh {start|stop|restart|status|candidate FILE} - run mediad. There is no
+# automatic rollback: a binary that fails to produce frames stays in place so the
+# bug can be fixed and redeployed (project rule).
 
 YIP_PREFIX="${YIP_PREFIX:-/tmp/sd/yi-protect}"
 MEDIAD="$YIP_PREFIX/bin/mediad"
 CONF="$YIP_PREFIX/etc/mediad.conf"
 PIDFILE=/tmp/mediad.pid
-GOOD="$YIP_PREFIX/bin/mediad.known-good"
-LATCH="$YIP_PREFIX/.boot-pending"
-ROLLBACK_SECS="${MEDIAD_ROLLBACK_SECS:-60}"
+STARTUP_SECS="${MEDIAD_STARTUP_SECS:-60}"
 RING=/dev/shm/fshare_frame_buf
 BOOTLOG=/tmp/sd/mediad-boot.log
 SEQ=/tmp/sd/mediad-pass.seq
@@ -38,7 +37,7 @@ ring_sample() {
     [ -f "$RING" ] || return 0
     dd if="$RING" bs=1 skip=4 count=4 2>/dev/null | md5sum | cut -d' ' -f1
 }
-# Always sleeps, so a polling caller spends real time in the rollback window.
+# Always sleeps, so a polling caller waits out the startup window.
 frames_flowing() {
     a=$(ring_sample)
     sleep 3
@@ -72,12 +71,12 @@ run_pass() {
     [ -d "/proc/$p" ] && echo -1000 > "/proc/$p/oom_score_adj" 2>/dev/null
     log "started pid $p (log $LOG)"
     i=0
-    while [ "$i" -lt "$ROLLBACK_SECS" ]; do
-        if frames_flowing; then rm -f "$LATCH"; sync; log "pid $p frames flowing"; return 0; fi
+    while [ "$i" -lt "$STARTUP_SECS" ]; do
+        if frames_flowing; then log "pid $p frames flowing"; return 0; fi
         i=$((i + 3))
         if ! running; then log "pid $p exited"; return 1; fi
     done
-    log "pid $p alive, no frames after ${ROLLBACK_SECS}s"
+    log "pid $p alive, no frames after ${STARTUP_SECS}s"
     return 2
 }
 
@@ -88,73 +87,23 @@ stop() {
 }
 
 start() {
-    # `start force` (from candidate): skip the latch restore so the candidate runs.
-    force="$1"
     running && { log "already running (pid $(pid_of))"; return 0; }
     [ -x "$MEDIAD" ] || { log "not found: $MEDIAD"; return 1; }
-
-    # A pending latch means the previous boot never saw frames: the current
-    # bin/mediad is unproven (likely wedged the box), so fall back before trying.
-    if [ -x "$GOOD" ] && [ -f "$LATCH" ] && [ "$force" != "force" ]; then
-        log "boot latch: last attempt never produced frames; restoring known-good"
-        cp -f "$GOOD" "$MEDIAD"
-    fi
-    : > "$LATCH"
-    sync
-
-    if [ "${MEDIAD_NO_ROLLBACK:-}" = "1" ]; then
-        run_pass; rc=$?
-        [ "$rc" = 0 ] && return 0
-        log "no frames within ${ROLLBACK_SECS}s (rollback disabled)"
-        return 1
-    fi
-
-    if [ ! -x "$GOOD" ]; then                 # first boot: seed the snapshot
-        run_pass; rc=$?
-        if [ "$rc" = 0 ]; then
-            cp -f "$MEDIAD" "$GOOD"
-            log "healthy; seeded known-good snapshot"
-            return 0
-        fi
-        log "no frames within ${ROLLBACK_SECS}s and no known-good to fall back to"
-        return 1
-    fi
-
     run_pass; rc=$?
     [ "$rc" = 0 ] && return 0
-
-    if [ "$rc" = 2 ]; then
-        # Alive but silent: leave it running. It may just be slow (cold boot),
-        # and killing a media daemon mid-init can wedge the VI/ISP.
-        log "daemon alive but silent; leaving it running (window ${ROLLBACK_SECS}s)"
-        return 1
-    fi
-
-    log "daemon exited; ROLLING BACK to known-good"
-    stop
-    cp -f "$GOOD" "$MEDIAD"
-    run_pass; rc=$?
-    [ "$rc" = 0 ] && { log "rollback OK; now running known-good"; return 0; }
-    log "known-good did not produce frames within ${ROLLBACK_SECS}s (rc=$rc)"
+    log "no frames within ${STARTUP_SECS}s (rc=$rc); leaving the binary in place"
     return 1
 }
 
-# Install a candidate under the guard. If the current daemon is healthy its
-# binary becomes the known-good snapshot first.
+# Install a new binary and start it; it stays in place whether or not it works.
 candidate() {
     src="$1"
     [ -n "$src" ] && [ -r "$src" ] || { log "candidate: no such file: $src"; return 2; }
-    if running && frames_flowing; then
-        cp -f "$MEDIAD" "$GOOD"
-        log "snapshotted running binary as known-good"
-    fi
     stop
     cp -f "$src" "$MEDIAD"
     log "installed candidate $(md5sum "$MEDIAD" 2>/dev/null | cut -d' ' -f1)"
-    # Arm the latch so a candidate that hangs the box is abandoned next boot.
-    : > "$LATCH"
     sync
-    start force
+    start
 }
 
 case "$1" in
