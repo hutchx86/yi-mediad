@@ -158,7 +158,7 @@ but contributes no object to the binary.
 ## Build
 
 ```
-./build.sh          # once: fetch toolchain, SDK, FAAC, ... into ./repos
+./build.sh          # once: fetch toolchain, SDK, FAAC, ... into the shared repos/
 make -C media_daemon           # deploy build -> media_daemon/mediad
 ./package.sh        # deploy build + SD-card package -> dist/
 ```
