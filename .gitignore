@@ -1,9 +1,8 @@
-devices.md
-fw-download/
-fw_extract/
-fw_disassembly/
 *.bin
 *.img
+
+# built archives (root)
+/*.tar.gz
 
 # Generated from the vendor SDK by build.sh (gitignored, not redistributed).
 media_daemon/isp_cfg/
