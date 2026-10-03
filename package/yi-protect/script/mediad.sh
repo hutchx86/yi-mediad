@@ -56,6 +56,11 @@ run_pass() {
     # Per-model overrides (etc/mediad.<model>.env, model from etc/model_suffix),
     # loaded last so model-specific facts win over per-deploy knobs.
     model=$(cat "$YIP_PREFIX/etc/model_suffix" 2>/dev/null)
+    if [ -z "$model" ] && [ -x "$YIP_PREFIX/script/detect-model.sh" ]; then
+        # boot-generated; regenerate if empty (fresh card / lost write).
+        model=$("$YIP_PREFIX/script/detect-model.sh")
+        sync 2>/dev/null
+    fi
     [ -n "$model" ] && [ -f "$YIP_PREFIX/etc/mediad.$model.env" ] && . "$YIP_PREFIX/etc/mediad.$model.env"
     # Per-pass log on the SD, numbered by a counter (no clock before timesync).
     n=$(cat "$SEQ" 2>/dev/null); case "$n" in ''|*[!0-9]*) n=0 ;; esac
