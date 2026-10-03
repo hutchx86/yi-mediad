@@ -1,9 +1,10 @@
 # mediad SD-card package
 
-An overlay for an existing **yi-protect** SD card that installs `mediad` and
-makes it run in place of the stock `rmm` encoder. `mediad` publishes the same
-`/dev/shm/fshare_frame_buf` ring the stock `rmm` does, so the yi-protect
-bridge/client stack is untouched.
+`mediad` is the clean-room encoder daemon that replaces the stock Yi `rmm`
+encoder under **yi-protect**. It publishes the same `/dev/shm/fshare_frame_buf`
+ring the stock `rmm` does, so the yi-protect bridge/client stack is untouched.
+It adds H.264 + H.265, per-model capture geometry, and the advanced picture
+controls.
 
 Supported models: `y623` (Yi Pro 2k), `h51ga`/`h52ga` (Yi Dome Camera U),
 `r35gb` (Yi Dome Guard), `y291ga` (Yi 1080p Home).
@@ -27,12 +28,35 @@ dist/
 
 ## Install
 
-1. Copy `dist/` to the card as its own folder, e.g.
+Pick the starting point that matches the camera. Either way `mediad` publishes
+the same fshare ring as the stock `rmm`, so the yi-protect stack is unchanged.
+
+### A. Camera with no yi-protect yet
+
+Install yi-protect first — see the yi-protect README, "Install (prebuilt)" or
+"Build from source". Then add `mediad` either way:
+
+- **Overlay after install (simplest).** Finish the yi-protect install, let the
+  camera boot and be adopted, then follow section B below on the card.
+- **Mediad-bundled image.** Build this package first (`./build.sh &&
+  ./package.sh`) so its `dist/` exists, then run yi-protect's `build_sd.sh`; it
+  packages `dist/` into the SD image. Write that image and set `IS_MEDIAD=yes`
+  in `yi-protect/etc/yi-protect.cfg` after first boot (section B's installer
+  does this flip for you; a bundled image does not).
+
+> The published yi-protect release image is **rmm-only** — `mediad` is not built
+> into it. Getting `mediad` on a fresh camera means either the overlay (A/B
+> above) or building a bundled image yourself.
+
+### B. Camera already running yi-protect (stock `rmm`)
+
+1. Build if needed: `./build.sh && ./package.sh`.
+2. Copy `dist/` to the card as its own folder, e.g.
    `scp -r dist root@<camera>:/tmp/sd/mediad-dist` (or copy it onto the card on
    a PC). Do not copy it over the card's `yi-protect/`.
-2. On the camera: `sh /tmp/sd/mediad-dist/install-mediad.sh` (the SD root
+3. On the camera: `sh /tmp/sd/mediad-dist/install-mediad.sh` (the SD root
    defaults to `/tmp/sd`; pass another as the first argument).
-3. Reboot (or `/tmp/sd/yi-protect/script/mediad.sh start` with the stock `rmm`
+4. Reboot (or `/tmp/sd/yi-protect/script/mediad.sh start` with the stock `rmm`
    stopped).
 
 The installer:

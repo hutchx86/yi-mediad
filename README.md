@@ -211,24 +211,22 @@ drop one in.
 
 ## Install
 
-The package overlays an existing **yi-protect** SD card; the bridge/client stack
-is untouched.
+Which flow you follow depends on the camera's starting point; both are covered
+in full in [package/README.md](package/README.md):
 
-1. Build: `./build.sh && ./package.sh`.
-2. Copy `dist/` to the card as its own folder, e.g.
-   `scp -r dist root@<camera>:/tmp/sd/mediad-dist` (or copy it onto the card on
-   a PC). Do not copy it over the card's `yi-protect/`: the installer keeps an
-   existing `mediad.conf` and backs up what it edits.
-3. On the camera: `sh /tmp/sd/mediad-dist/install-mediad.sh` (the SD root
-   defaults to `/tmp/sd`; pass another as the first argument).
-4. Reboot.
+- **No yi-protect yet** — install yi-protect first (see its README), then either
+  overlay this package onto the card or build a `mediad`-bundled yi-protect image.
+- **Already running yi-protect** on the stock `rmm` — overlay this package onto
+  the card.
 
-The installer copies `yi-protect/{bin,etc,script,lib}`, sets `IS_MEDIAD=yes` in
-`yi-protect.cfg`, makes `init.sh` launch `mediad.sh start` instead of the stock
-`./rmm` and `watchdog.sh` watch `mediad`, keeping `.pre-mediad` backups. If
-yi-protect is already mediad-aware it only copies files. `mediad.sh candidate
-<file>` installs a new binary and starts it, with no automatic rollback. Details:
-[package/README.md](package/README.md).
+Either way: build with `./build.sh && ./package.sh`, copy `dist/` to the card as
+its own folder (do not overwrite the card's `yi-protect/`), run
+`sh /tmp/sd/mediad-dist/install-mediad.sh` on the camera, and reboot. The
+installer copies `yi-protect/{bin,etc,script,lib}`, sets `IS_MEDIAD=yes`, and
+reroutes `init.sh`/`watchdog.sh` to `mediad.sh start`, keeping `.pre-mediad`
+backups. If yi-protect is already mediad-aware it only copies files.
+`mediad.sh candidate <file>` installs a new binary and starts it, with no
+automatic rollback.
 
 ## Control surface
 
