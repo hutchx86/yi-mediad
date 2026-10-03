@@ -9,7 +9,7 @@ bridge).
 `mediad` owns sensor capture → ISP → hardware H.264 encode → the stock
 `/dev/shm/fshare_frame_buf` ring, plus the mic AAC track. It is *not* a new
 protocol: it publishes the same shared-memory ring the stock `rmm` does, so the
-downstream `unifi_flv_bridge` / UniFi Protect path is untouched and the two are
+downstream `yi_protect_flv_bridge` / UniFi Protect path is untouched and the two are
 interchangeable.
 
 This repository is the daemon plus the SD-card overlay that installs it onto a
@@ -45,7 +45,7 @@ see [Features](#features).
 - **Hardware H.264 encode** — High profile, VBR, QP [10,40] (stock `rmm`'s own
   encoder values), a keyframe every 5 s on HIGH and 1 s on LOW. The engine is
   the clean-room **freecodec** implementation (statically linked) and its
-  supporting framework the clean-room `libvenc_base.so` shipped in `unifi/lib/`;
+  supporting framework the clean-room `libvenc_base.so` shipped in `yi-protect/lib/`;
   no vendor encoder blob is linked or shipped (see [Future](#future--in-progress)).
 - **Bitrate** — HIGH 2.8 Mbps / LOW 0.7 Mbps by default; HIGH is adjustable from
   Protect (clamped to 4 Mbps) and persists across restarts. `MEDIAD_HIGH_BPS` /
@@ -185,7 +185,7 @@ are fetched for interoperability and are **not** redistributed here. See
 
 No tuning is compiled in. On first boot mediad reads the camera's own ISP tuning
 and 3A tables (including the PLTM presets) from `/home/app/rmm` and caches them
-under `/tmp/sd/unifi/isp_cfg/` (`freeisp_tables.bin` and the day/night blobs);
+under `/tmp/sd/yi-protect/isp_cfg/` (`freeisp_tables.bin` and the day/night blobs);
 later boots read the cache. `MEDIAD_NO_RMM_TUNING=1` disables this.
 
 ## Package (`dist/`)
@@ -198,15 +198,15 @@ dist/
   README.md                  package/README.md
   licenses/                  LICENSE, LICENSE-EXCEPTION, NOTICE, OFL-Terminus.txt,
                              COPYING-FAAC, SOURCE.txt (exact source revisions)
-  unifi/bin/mediad           stripped deploy build
-  unifi/etc/mediad.conf      default settings (installed only if absent)
-  unifi/script/mediad.sh     start/stop/restart/status/candidate
-  unifi/lib/libvenc_base.so  clean-room encoder support (found via $ORIGIN/../lib)
-  unifi/lib/vin_crop_shim.so optional capture crop (LD_PRELOAD; not used by default)
+  yi-protect/bin/mediad           stripped deploy build
+  yi-protect/etc/mediad.conf      default settings (installed only if absent)
+  yi-protect/script/mediad.sh     start/stop/restart/status/candidate
+  yi-protect/lib/libvenc_base.so  clean-room encoder support (found via $ORIGIN/../lib)
+  yi-protect/lib/vin_crop_shim.so optional capture crop (LD_PRELOAD; not used by default)
 ```
 
 Capture/encode geometry is keyed on the model in the daemon (`g_models`), so no
-per-model `.env` ships; a `unifi/etc/mediad.<model>.env` still overrides if you
+per-model `.env` ships; a `yi-protect/etc/mediad.<model>.env` still overrides if you
 drop one in.
 
 ## Install
@@ -217,14 +217,14 @@ is untouched.
 1. Build: `./build.sh && ./package.sh`.
 2. Copy `dist/` to the card as its own folder, e.g.
    `scp -r dist root@<camera>:/tmp/sd/mediad-dist` (or copy it onto the card on
-   a PC). Do not copy it over the card's `unifi/`: the installer keeps an
+   a PC). Do not copy it over the card's `yi-protect/`: the installer keeps an
    existing `mediad.conf` and backs up what it edits.
 3. On the camera: `sh /tmp/sd/mediad-dist/install-mediad.sh` (the SD root
    defaults to `/tmp/sd`; pass another as the first argument).
 4. Reboot.
 
-The installer copies `unifi/{bin,etc,script,lib}`, sets `IS_MEDIAD=yes` in
-`unifi.cfg`, makes `init.sh` launch `mediad.sh start` instead of the stock
+The installer copies `yi-protect/{bin,etc,script,lib}`, sets `IS_MEDIAD=yes` in
+`yi-protect.cfg`, makes `init.sh` launch `mediad.sh start` instead of the stock
 `./rmm` and `watchdog.sh` watch `mediad`, keeping `.pre-mediad` backups. If
 yi-protect is already mediad-aware it only copies files. `mediad.sh` keeps a
 known-good copy of the binary and rolls back to it if a new one never produces
@@ -245,14 +245,14 @@ package) is a CLI for it. Keys include `brightness`, `contrast`, `saturation`,
 with 50 = stock.
 
 - **Web UI:** yi-protect's settings page (`http://<camera>/`, port `WEBUI_PORT`
-  in `unifi.cfg`, default 80, 0 = off) edits these controls and saves them as
+  in `yi-protect.cfg`, default 80, 0 = off) edits these controls and saves them as
   pinned values. mediad also has a minimal built-in slider page, off by default
   (`webui=1`, `webui_port=8099` in `mediad.conf`).
-- **`mediad.conf`** (`/tmp/sd/unifi/etc/mediad.conf`, `MEDIAD_CONF`): `key=value`
+- **`mediad.conf`** (`/tmp/sd/yi-protect/etc/mediad.conf`, `MEDIAD_CONF`): `key=value`
   lines are applied at boot and **pinned**, so Protect's connect-time re-assert
   cannot override them; `pin_<key>=value` sets a boot value without pinning.
 - **Environment:** encoder, geometry and bring-up knobs are environment
-  variables, set in `unifi/etc/mediad.env`: see [docs/env.md](docs/env.md).
+  variables, set in `yi-protect/etc/mediad.env`: see [docs/env.md](docs/env.md).
 
 ## Legal
 

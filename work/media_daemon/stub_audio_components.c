@@ -177,7 +177,7 @@ int parser_ini_info(fwi_tuning_image_t *param, char *sensor_name,
             const char *cache = getenv("MEDIAD_ISP_CACHE");
             tuning_load_tried = 1;
             if (!rmm) rmm = "/home/app/rmm";
-            if (!cache) cache = "/tmp/sd/unifi/isp_cfg";
+            if (!cache) cache = "/tmp/sd/yi-protect/isp_cfg";
             if (rmm_tuning_load(rmm, sensor_name, cache) != 0)
                 fprintf(stderr, "parser_ini_info: no vendor tuning from %s "
                                 "(sensor %s); using defaults\n", rmm, sensor_name);

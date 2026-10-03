@@ -481,8 +481,8 @@ static void load_default_name(void)
 {
     const char *e = getenv("MEDIAD_OSD_NAME");
     const char *files[] = {
-        "/tmp/sd/unifi/etc/unifi_client_go.device-name",
-        "/tmp/sd/unifi/etc/model_suffix",
+        "/tmp/sd/yi-protect/etc/yi_protect_client_go.device-name",
+        "/tmp/sd/yi-protect/etc/model_suffix",
     };
     size_t i;
 

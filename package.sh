@@ -37,14 +37,14 @@ grep -q "$STAMP" work/media_daemon/mediad_rtos_v || \
 
 echo "== assembling dist/"
 rm -rf dist
-mkdir -p dist/unifi/bin dist/unifi/etc dist/unifi/script dist/unifi/lib
-cp work/media_daemon/mediad_rtos_v dist/unifi/bin/mediad
-"$STRIP" dist/unifi/bin/mediad 2>/dev/null || true
-cp package/unifi/etc/mediad.conf dist/unifi/etc/mediad.conf
-for env in package/unifi/etc/mediad.*.env; do
-    [ -f "$env" ] && cp "$env" dist/unifi/etc/
+mkdir -p dist/yi-protect/bin dist/yi-protect/etc dist/yi-protect/script dist/yi-protect/lib
+cp work/media_daemon/mediad_rtos_v dist/yi-protect/bin/mediad
+"$STRIP" dist/yi-protect/bin/mediad 2>/dev/null || true
+cp package/yi-protect/etc/mediad.conf dist/yi-protect/etc/mediad.conf
+for env in package/yi-protect/etc/mediad.*.env; do
+    [ -f "$env" ] && cp "$env" dist/yi-protect/etc/
 done
-cp package/unifi/script/mediad.sh dist/unifi/script/mediad.sh
+cp package/yi-protect/script/mediad.sh dist/yi-protect/script/mediad.sh
 cp package/install.sh dist/install-mediad.sh
 cp package/README.md dist/README.md
 # Licences that travel with the binaries (the OSD font is SIL OFL 1.1).
@@ -88,14 +88,14 @@ SRC
 
 # libvenc_base.so (clean-room) is mediad's only shared library besides the
 # camera's C/C++ runtime and ALSA; found via the $ORIGIN/../lib rpath.
-cp work/media_daemon/build-rtos-v/libvenc_base.so dist/unifi/lib/libvenc_base.so
-"$STRIP" dist/unifi/lib/libvenc_base.so 2>/dev/null || true
+cp work/media_daemon/build-rtos-v/libvenc_base.so dist/yi-protect/lib/libvenc_base.so
+"$STRIP" dist/yi-protect/lib/libvenc_base.so 2>/dev/null || true
 # vin_crop_shim.so: LD_PRELOAD VIPP crop (VIDIOC_S_SELECTION) for models whose
 # capture margin is garbage; enabled per model by mediad.<model>.env (r35gb).
 "$TC/arm-openwrt-linux-muslgnueabi-gcc" -O2 -Wall -fPIC -shared \
-    -o dist/unifi/lib/vin_crop_shim.so work/vin_crop_shim/vin_crop_shim.c -ldl
-"$STRIP" dist/unifi/lib/vin_crop_shim.so 2>/dev/null || true
-chmod 0755 dist/unifi/bin/mediad dist/unifi/script/mediad.sh dist/install-mediad.sh dist/unifi/lib/*.so
+    -o dist/yi-protect/lib/vin_crop_shim.so work/vin_crop_shim/vin_crop_shim.c -ldl
+"$STRIP" dist/yi-protect/lib/vin_crop_shim.so 2>/dev/null || true
+chmod 0755 dist/yi-protect/bin/mediad dist/yi-protect/script/mediad.sh dist/install-mediad.sh dist/yi-protect/lib/*.so
 
 echo "== dist/ ready:"
 find dist -type f | sort

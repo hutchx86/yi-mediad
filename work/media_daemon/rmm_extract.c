@@ -8,9 +8,9 @@
 // camera; mediad does the same extraction in-process at first init.
 //
 // Usage: rmm_extract <rmm_path> <sensor> [outdir]
-//   e.g. rmm_extract /home/app/rmm gc3003_mipi /tmp/sd/unifi/isp_cfg
+//   e.g. rmm_extract /home/app/rmm gc3003_mipi /tmp/sd/yi-protect/isp_cfg
 //   rmm_path/sensor default from RMM_PATH / RMM_SENSOR; outdir from
-//   RMM_OUTDIR (default /tmp/sd/unifi/isp_cfg).
+//   RMM_OUTDIR (default /tmp/sd/yi-protect/isp_cfg).
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
     unsigned int day_len, night_len;
 
     if (!rmm_path) rmm_path = "/home/app/rmm";
-    if (!outdir) outdir = "/tmp/sd/unifi/isp_cfg";
+    if (!outdir) outdir = "/tmp/sd/yi-protect/isp_cfg";
     if (!sensor) {
         fprintf(stderr, "rmm_extract: usage: %s <rmm_path> <sensor> [outdir]\n", argv[0]);
         return 2;

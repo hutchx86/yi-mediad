@@ -5,12 +5,12 @@
 # mediad.sh {start|stop|restart|status|candidate FILE} - run mediad under a
 # rollback guard (bin/mediad.known-good) and a boot latch; see package/README.md.
 
-UNIFI_PREFIX="${UNIFI_PREFIX:-/tmp/sd/unifi}"
-MEDIAD="$UNIFI_PREFIX/bin/mediad"
-CONF="$UNIFI_PREFIX/etc/mediad.conf"
+YIP_PREFIX="${YIP_PREFIX:-/tmp/sd/yi-protect}"
+MEDIAD="$YIP_PREFIX/bin/mediad"
+CONF="$YIP_PREFIX/etc/mediad.conf"
 PIDFILE=/tmp/mediad.pid
-GOOD="$UNIFI_PREFIX/bin/mediad.known-good"
-LATCH="$UNIFI_PREFIX/.boot-pending"
+GOOD="$YIP_PREFIX/bin/mediad.known-good"
+LATCH="$YIP_PREFIX/.boot-pending"
 ROLLBACK_SECS="${MEDIAD_ROLLBACK_SECS:-60}"
 RING=/dev/shm/fshare_frame_buf
 BOOTLOG=/tmp/sd/mediad-boot.log
@@ -52,11 +52,11 @@ run_pass() {
     export MEDIAD_CONF
     # Optional per-deploy knobs: etc/mediad.env, `export KEY=value` lines
     # (docs/env.md).
-    [ -f "$UNIFI_PREFIX/etc/mediad.env" ] && . "$UNIFI_PREFIX/etc/mediad.env"
+    [ -f "$YIP_PREFIX/etc/mediad.env" ] && . "$YIP_PREFIX/etc/mediad.env"
     # Per-model overrides (etc/mediad.<model>.env, model from etc/model_suffix),
     # loaded last so model-specific facts win over per-deploy knobs.
-    model=$(cat "$UNIFI_PREFIX/etc/model_suffix" 2>/dev/null)
-    [ -n "$model" ] && [ -f "$UNIFI_PREFIX/etc/mediad.$model.env" ] && . "$UNIFI_PREFIX/etc/mediad.$model.env"
+    model=$(cat "$YIP_PREFIX/etc/model_suffix" 2>/dev/null)
+    [ -n "$model" ] && [ -f "$YIP_PREFIX/etc/mediad.$model.env" ] && . "$YIP_PREFIX/etc/mediad.$model.env"
     # Per-pass log on the SD, numbered by a counter (no clock before timesync).
     n=$(cat "$SEQ" 2>/dev/null); case "$n" in ''|*[!0-9]*) n=0 ;; esac
     n=$((n + 1)); echo "$n" > "$SEQ"

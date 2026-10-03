@@ -1,8 +1,8 @@
 # mediad environment variables
 
 `mediad` reads these at startup. On a yi-protect card, set them in
-`unifi/etc/mediad.env` (`export KEY=value` lines), which `mediad.sh` sources
-before each start; a per-model file (`unifi/etc/mediad.<model>.env`), if present,
+`yi-protect/etc/mediad.env` (`export KEY=value` lines), which `mediad.sh` sources
+before each start; a per-model file (`yi-protect/etc/mediad.<model>.env`), if present,
 is sourced after it and wins. Capture/encode geometry no longer needs one: it is
 keyed on the model by default (see below). Most of these are bring-up and
 diagnostic knobs: the defaults are the tested configuration.
@@ -15,12 +15,12 @@ yi-protect's settings page (see the README).
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `MEDIAD_CONF` | `/tmp/sd/unifi/etc/mediad.conf` | Control config file (`mediad.sh` sets it when the file exists). |
+| `MEDIAD_CONF` | `/tmp/sd/yi-protect/etc/mediad.conf` | Control config file (`mediad.sh` sets it when the file exists). |
 | `MEDIAD_CTL_SOCK` | `/tmp/mediad_ctl.sock` | Control socket path (also read by `mediad_ctl`). |
 | `MEDIAD_RMM_PATH` | `/home/app/rmm` | Stock `rmm` binary the ISP tuning and 3A tables are read from. |
-| `MEDIAD_ISP_CACHE` | `/tmp/sd/unifi/isp_cfg` | Directory for the cached day/night tuning blobs. |
-| `MEDIAD_TABLE_BUNDLE` | `/tmp/sd/unifi/isp_cfg/freeisp_tables.bin` | Cache of the 3A tables for the clean-room ISP tier; empty string = never cache. |
-| `MEDIAD_BITRATE_FILE` | `/tmp/sd/unifi/etc/mediad.bitrate` | Where the bitrate last set by Protect is persisted. |
+| `MEDIAD_ISP_CACHE` | `/tmp/sd/yi-protect/isp_cfg` | Directory for the cached day/night tuning blobs. |
+| `MEDIAD_TABLE_BUNDLE` | `/tmp/sd/yi-protect/isp_cfg/freeisp_tables.bin` | Cache of the 3A tables for the clean-room ISP tier; empty string = never cache. |
+| `MEDIAD_BITRATE_FILE` | `/tmp/sd/yi-protect/etc/mediad.bitrate` | Where the bitrate last set by Protect is persisted. |
 | `MEDIAD_NO_RMM_TUNING` | unset | Set: do not read tuning or 3A tables from `rmm` (built-in defaults). |
 
 ## Sensor, model and geometry
@@ -28,7 +28,7 @@ yi-protect's settings page (see the README).
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `MEDIAD_SENSOR` | live sensor name (V4L2 subdev) | Override the detected sensor, e.g. `gc2053_mipi`. |
-| `MEDIAD_MODEL` | `unifi/etc/model_suffix` | Override the model (selects geometry and mounting orientation). |
+| `MEDIAD_MODEL` | `yi-protect/etc/model_suffix` | Override the model (selects geometry and mounting orientation). |
 | `MEDIAD_MIRROR`, `MEDIAD_FLIP` | per model | Mounting orientation base (0/1). |
 | `MEDIAD_CAP_W`, `MEDIAD_CAP_H` | per model (sensor fallback) | HIGH capture size. |
 | `MEDIAD_PIC_W`, `MEDIAD_PIC_H` | per model (sensor fallback) | HIGH encoded size. |
@@ -120,4 +120,4 @@ replayed table.
 ## `rmm_extract` (host/device tuning extractor)
 
 `rmm_extract <rmm_path> <sensor> [outdir]`; the arguments default to
-`RMM_PATH`, `RMM_SENSOR` and `RMM_OUTDIR` (`/tmp/sd/unifi/isp_cfg`).
+`RMM_PATH`, `RMM_SENSOR` and `RMM_OUTDIR` (`/tmp/sd/yi-protect/isp_cfg`).

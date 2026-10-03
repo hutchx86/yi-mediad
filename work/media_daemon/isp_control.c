@@ -354,7 +354,7 @@ static int get_ir_led(int d, int *v) { (void)d; *v = g_ir_led; return 0; }
 
 /* Day/night mode and threshold persist across restarts (Protect sends them only
  * on change); loaded before mediad.conf, so a pin there still wins. */
-#define MEDIAD_NIGHT_FILE "/tmp/sd/unifi/etc/mediad.night"
+#define MEDIAD_NIGHT_FILE "/tmp/sd/yi-protect/etc/mediad.night"
 static int g_night_loaded;          /* don't rewrite the file while loading it */
 
 static void night_state_save(void)
@@ -666,7 +666,7 @@ int isp_control_pending_dump(char *out, size_t n)
 
 /* mediad.conf path and its writer for `pin`/`unpin`, so mediad stays the only
  * writer of its config (yi-protect's settings page saves through these). */
-static char g_conf_path[160] = "/tmp/sd/unifi/etc/mediad.conf";
+static char g_conf_path[160] = "/tmp/sd/yi-protect/etc/mediad.conf";
 
 /* Set `key=val`, or drop key= / pin_key= lines when val is NULL; other lines
  * are kept and the file is replaced atomically by rename. */
@@ -1152,7 +1152,7 @@ int isp_control_load_config(const char *path)
     int webui = 0, port = 8099;
 
     if (!path || !path[0])
-        path = "/tmp/sd/unifi/etc/mediad.conf";
+        path = "/tmp/sd/yi-protect/etc/mediad.conf";
     snprintf(g_conf_path, sizeof(g_conf_path), "%s", path);
     f = fopen(path, "r");
     if (!f)

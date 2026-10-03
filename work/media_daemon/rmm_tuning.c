@@ -15,7 +15,7 @@
 
 /* Where mediad caches the extracted blobs on the SD card by default. */
 #ifndef RMM_TUNING_CACHE_DIR
-#define RMM_TUNING_CACHE_DIR "/tmp/sd/unifi/isp_cfg"
+#define RMM_TUNING_CACHE_DIR "/tmp/sd/yi-protect/isp_cfg"
 #endif
 
 /* ------------------------------------------------------------------ IO --- */

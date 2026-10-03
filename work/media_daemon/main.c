@@ -265,7 +265,7 @@ static const model_caps g_caps[] = {
 static void read_model_suffix(char *out, size_t n)
 {
     const char *files[] = {
-        "/tmp/sd/unifi/etc/model_suffix",
+        "/tmp/sd/yi-protect/etc/model_suffix",
         "/tmp/sd/yi-hack/model_suffix",
     };
     const char *e = getenv("MEDIAD_MODEL");
@@ -352,7 +352,7 @@ static void load_shim_tables(void)
  * only on connect/change; a restart would otherwise fall back to the default. */
 #define MEDIAD_BITRATE_MIN 48000u
 #define MEDIAD_BITRATE_MAX 6000000u
-#define MEDIAD_BITRATE_FILE_DEFAULT "/tmp/sd/unifi/etc/mediad.bitrate"
+#define MEDIAD_BITRATE_FILE_DEFAULT "/tmp/sd/yi-protect/etc/mediad.bitrate"
 
 static const char *bitrate_file(void)
 {
@@ -391,7 +391,7 @@ static unsigned int load_bitrate(const char *name)
  * controller last selected instead of H.264 followed by a switch (that flip
  * reconnects every stream and races the controller's stream bookkeeping).
  * Precedence at start: MEDIAD_CODEC* env, then this file, then H.264. */
-#define MEDIAD_CODEC_FILE_DEFAULT "/tmp/sd/unifi/etc/mediad.codec"
+#define MEDIAD_CODEC_FILE_DEFAULT "/tmp/sd/yi-protect/etc/mediad.codec"
 
 static const char *codec_file(void)
 {
