@@ -1,6 +1,6 @@
-# Build knobs (`work/media_daemon/Makefile`)
+# Build knobs (`media_daemon/Makefile`)
 
-A bare `make -C work/media_daemon` is the deploy build, the same flags
+A bare `make -C media_daemon` is the deploy build, the same flags
 `package.sh` uses (it only adds its own `BUILD`/`TARGET` names and a
 reproducible build stamp). It compiles no vendor source, includes no vendor
 header and links no vendor object: the ISP 3A/register/framework tiers, the
@@ -17,10 +17,11 @@ clean-room tier against the vendor one; they are not the deliverable.
 | Knob | Default | Meaning |
 | --- | --- | --- |
 | `FW_ROOT` | `../../freewinner` if checked out, else `$(SIBLINGS)/freewinner/freewinner-git` | freewinner checkout (clean-room ISP + codec). |
-| `SIBLINGS` | four levels above `work/media_daemon` | Directory holding sibling checkouts. |
+| `SIBLINGS` | three levels above `media_daemon` | Directory holding sibling checkouts. |
 | `FREEWINNER` | `$(FW_ROOT)/isp` | ISP tier (`src/`, `shim/`, `include/`). |
 | `FREECODEC_DIR` | `$(FW_ROOT)/codec` | Codec tier (H.264, AAC, `libvenc_base.so`). |
-| `PROJECT_ROOT` | repo root | Where `repos/` (toolchain, SDK) is looked up. |
+| `PROJECT_ROOT` | repo root | This checkout. |
+| `REPOS_DIR` | `PROJECT_ROOT/../../../repos` | The shared dependency checkouts (toolchain, SDK, FAAC). |
 | `BUILD`, `TARGET` | `build`, `mediad` | Object directory and binary name. |
 
 ## Clean-room tiers (default on)

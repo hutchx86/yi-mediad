@@ -8,19 +8,20 @@ set -eu
 
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$REPO"
+REPOS_DIR="${REPOS_DIR:-$REPO/../../../repos}"
 
-[ -d repos/lindenis-v536-prebuilt ] || {
+[ -d "$REPOS_DIR/lindenis-v536-prebuilt" ] || {
     echo "== dependencies not fetched; running build.sh first"
     ./build.sh
 }
 
-TC=repos/lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain/bin
+TC=$REPOS_DIR/lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain/bin
 STRIP="$TC/arm-openwrt-linux-muslgnueabi-strip"
 
 # Reproducible build stamp: a hash of the build inputs' content (not HEAD), so
 # unrelated edits leave the binary unchanged. Space-free for EXTRA_CFLAGS.
 REV=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo dev)
-STAMP_INPUTS="work/media_daemon package package.sh"
+STAMP_INPUTS="media_daemon package package.sh"
 SRC_HASH=$(git -C "$REPO" ls-files -z -- $STAMP_INPUTS 2>/dev/null \
     | xargs -0 -r sha1sum 2>/dev/null | sha1sum | cut -c1-12)
 [ -n "$SRC_HASH" ] || SRC_HASH=000000000000
@@ -29,16 +30,16 @@ STAMP="src-$SRC_HASH"
 echo "== building mediad (clean build: ALGO_RTOS=1 FREECODEC_H264=1 FENC/FISP/FCAP/HEADERS=1; rev $REV stamp $STAMP)"
 # The deploy flags (also the Makefile defaults). -W main.c: make cannot see a
 # changed -D stamp, so always recompile its only user.
-make -C work/media_daemon -W main.c BUILD=build-rtos-v TARGET=mediad_rtos_v ALGO_RTOS=1 \
+make -C media_daemon -W main.c BUILD=build-rtos-v TARGET=mediad_rtos_v ALGO_RTOS=1 \
     FREECODEC_H264=1 FREECODEC_FENC=1 FREECODEC_FISP=1 FREECODEC_FCAP=1 FREECODEC_HEADERS=1 \
     EXTRA_CFLAGS="-DMEDIAD_BUILD_STAMP='\"$STAMP\"'"
-grep -q "$STAMP" work/media_daemon/mediad_rtos_v || \
+grep -q "$STAMP" media_daemon/mediad_rtos_v || \
     { echo "ERROR: built mediad does not carry stamp $STAMP"; exit 1; }
 
 echo "== assembling dist/"
 rm -rf dist
 mkdir -p dist/yi-protect/bin dist/yi-protect/etc dist/yi-protect/script dist/yi-protect/lib
-cp work/media_daemon/mediad_rtos_v dist/yi-protect/bin/mediad
+cp media_daemon/mediad_rtos_v dist/yi-protect/bin/mediad
 "$STRIP" dist/yi-protect/bin/mediad 2>/dev/null || true
 cp package/yi-protect/etc/mediad.conf dist/yi-protect/etc/mediad.conf
 cp package/yi-protect/script/mediad.sh dist/yi-protect/script/mediad.sh
@@ -47,8 +48,8 @@ cp package/README.md dist/README.md
 # Licences that travel with the binaries (the OSD font is SIL OFL 1.1).
 mkdir -p dist/licenses
 cp LICENSE LICENSE-EXCEPTION NOTICE dist/licenses/
-cp work/media_daemon/fonts/OFL-Terminus.txt dist/licenses/OFL-Terminus.txt
-cp repos/faac/COPYING dist/licenses/COPYING-FAAC
+cp media_daemon/fonts/OFL-Terminus.txt dist/licenses/OFL-Terminus.txt
+cp "$REPOS_DIR/faac/COPYING" dist/licenses/COPYING-FAAC
 # Corresponding source for this exact build (GPL-3.0 / AGPL-3.0 / LGPL-2.1).
 # Same resolution as the Makefile's FW_ROOT: the submodule when checked out.
 if [ -f "$REPO/freewinner/isp/Makefile" ]; then
@@ -85,12 +86,12 @@ SRC
 
 # libvenc_base.so (clean-room) is mediad's only shared library besides the
 # camera's C/C++ runtime and ALSA; found via the $ORIGIN/../lib rpath.
-cp work/media_daemon/build-rtos-v/libvenc_base.so dist/yi-protect/lib/libvenc_base.so
+cp media_daemon/build-rtos-v/libvenc_base.so dist/yi-protect/lib/libvenc_base.so
 "$STRIP" dist/yi-protect/lib/libvenc_base.so 2>/dev/null || true
 # vin_crop_shim.so: LD_PRELOAD VIPP crop (VIDIOC_S_SELECTION) for models whose
-# capture margin is garbage; enabled per model by mediad.<model>.env (r35gb).
+# capture margin is garbage; enabled with a mediad.<model>.env override.
 "$TC/arm-openwrt-linux-muslgnueabi-gcc" -O2 -Wall -fPIC -shared \
-    -o dist/yi-protect/lib/vin_crop_shim.so work/vin_crop_shim/vin_crop_shim.c -ldl
+    -o dist/yi-protect/lib/vin_crop_shim.so vin_crop_shim/vin_crop_shim.c -ldl
 "$STRIP" dist/yi-protect/lib/vin_crop_shim.so 2>/dev/null || true
 chmod 0755 dist/yi-protect/bin/mediad dist/yi-protect/script/mediad.sh dist/install-mediad.sh dist/yi-protect/lib/*.so
 

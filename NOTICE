@@ -95,7 +95,7 @@ Kernel - OPEN (evidence: `.ko` modinfo on the camera):
   compressed). The userspace encoder core over it is closed regardless.
 
 Other:
-* **alsa-lib** - `work/media_daemon/include/alsa/*.h` (19 headers, tracked in
+* **alsa-lib** - `media_daemon/include/alsa/*.h` (19 headers, tracked in
   this repo): the public headers reached from `<alsa/asoundlib.h>`, from
   alsa-lib 1.1.4.1, LGPL-2.1-or-later. All are verbatim except `asoundlib.h`
   (`<sys/poll.h>` -> `<poll.h>` for musl, marked in the file). The camera's own
@@ -103,10 +103,10 @@ Other:
 * **rmm fshare ring format** - reverse engineered from the camera's own stock
   `rmm`; the stock binary is not redistributed.
 * **Terminus Font** (bold, 8x16 and 16x32) - the glyph bitmaps in the
-  generated `work/media_daemon/osd_font.h` are copied unmodified from Terminus
+  generated `media_daemon/osd_font.h` are copied unmodified from Terminus
   4.49.1, Copyright (C) 2020 Dimitar Toshkov Zhekov, SIL Open Font License 1.1
   (Reserved Font Name "Terminus Font"). The licence is in
-  `work/media_daemon/fonts/OFL-Terminus.txt` and must ship with the source and
+  `media_daemon/fonts/OFL-Terminus.txt` and must ship with the source and
   any distribution of the font data.
 * **iniparser** (`libisp/iniparser`) - ships no license file in this SDK tree;
   upstream iniparser is MIT.

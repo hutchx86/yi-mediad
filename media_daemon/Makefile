@@ -4,25 +4,26 @@
 # Cross-build of mediad (armhf musl). A bare `make` is the deploy build: no vendor
 # object or header, clean-room tiers from freewinner. Knobs: docs/build-knobs.md.
 
-PROJECT_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
+PROJECT_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
+REPOS_DIR ?= $(abspath $(PROJECT_ROOT)/../../../repos)
 MD := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-TC := $(PROJECT_ROOT)/repos/lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain
+TC := $(REPOS_DIR)/lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain
 CC := $(TC)/bin/arm-openwrt-linux-muslgnueabi-gcc
 CXX := $(TC)/bin/arm-openwrt-linux-muslgnueabi-g++
 AR := $(TC)/bin/arm-openwrt-linux-muslgnueabi-gcc-ar
 OBJCOPY := $(TC)/bin/arm-openwrt-linux-muslgnueabi-objcopy
 NM := $(TC)/bin/arm-openwrt-linux-muslgnueabi-nm
 
-SW := $(PROJECT_ROOT)/repos/lindenis-v833-softwinner/eyesee-mpp
+SW := $(REPOS_DIR)/lindenis-v833-softwinner/eyesee-mpp
 MW := $(SW)/middleware/sun8iw19p1
 MEDIA := $(MW)/media
 LIB := $(MEDIA)/LIBRARY
 CEDARC := $(LIB)/libcedarc
 
 # freewinner: the ./freewinner submodule if checked out, else a sibling checkout.
-SIBLINGS  ?= $(abspath $(MD)/../../../..)
-FW_ROOT ?= $(if $(wildcard $(MD)/../../freewinner/isp/Makefile),$(abspath $(MD)/../../freewinner),$(SIBLINGS)/freewinner/freewinner-git)
+SIBLINGS  ?= $(abspath $(MD)/../../..)
+FW_ROOT ?= $(if $(wildcard $(MD)/../freewinner/isp/Makefile),$(abspath $(MD)/../freewinner),$(SIBLINGS)/freewinner/freewinner-git)
 FREEWINNER ?= $(FW_ROOT)/isp
 FREECODEC_DIR ?= $(FW_ROOT)/codec
 FW_GIT    := $(FREEWINNER)
@@ -586,7 +587,7 @@ endif
 
 # Always rebuilt. FAAC is passed relative so assert() strings carry no host path
 # (GCC 6.4 has no -ffile-prefix-map).
-FAAC_REL = $(shell realpath --relative-to=$(FREECODEC_DIR) $(MD)/../../repos/faac)
+FAAC_REL = $(shell realpath --relative-to=$(FREECODEC_DIR) $(REPOS_DIR)/faac)
 $(FREECODEC_AAC): FORCE
 	test -n "$(FREECODEC_DIR)"
 	rm -f $(FREECODEC_DIR)/build_arm/libfreecodec_aac.a $(FREECODEC_DIR)/build_arm/freecodec_aac.o
@@ -608,7 +609,7 @@ clean:
 -include $(OBJS:.o=.d)
 
 # Host test of the H.265 policy/setup unit (stub encoder, no hardware).
-FW_ROOT_T := $(abspath ../../../../freewinner/freewinner-git)
+FW_ROOT_T := $(FW_ROOT)
 .PHONY: test-hevc
 test-hevc: tests/test_hevc.c mediad_hevc.c mediad_hevc.h
 	cc -std=gnu11 -Wall -I. -I$(FW_ROOT_T)/mw_headers -I$(FW_ROOT_T)/codec/include -o /tmp/mediad_test_hevc tests/test_hevc.c mediad_hevc.c

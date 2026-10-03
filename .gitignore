@@ -4,39 +4,39 @@ fw_extract/
 fw_disassembly/
 *.bin
 *.img
-work/media_daemon/isp_cfg/
-work/media_daemon/build-isp521/
-work/media_daemon/mediad-isp521
-work/analysis/isp_tuning_images/
+
+# Generated from the vendor SDK by build.sh (gitignored, not redistributed).
+media_daemon/isp_cfg/
+
 __pycache__/
 
 # local agent settings (may contain pasted credentials)
 .claude/settings.local.json
 
-work/media_daemon/build/
-work/media_daemon/build-*/
-work/media_daemon/mediad
-work/media_daemon/mediad_ctl
-work/media_daemon/rmm_extract
+media_daemon/build/
+media_daemon/build-*/
+media_daemon/mediad
+media_daemon/mediad_ctl
+media_daemon/rmm_extract
 # Every mediad_* build product (ALGO_RTOS, vendor-linked and A/B experiment
 # binaries, whatever they are called), re-including source: the tracked
 # mediad_audio.{c,h} / mediad_venc.{c,h} must stay visible.
-work/media_daemon/mediad_*
-!work/media_daemon/mediad_*.c
-!work/media_daemon/mediad_*.h
-work/media_daemon/mediad.*
+media_daemon/mediad_*
+!media_daemon/mediad_*.c
+!media_daemon/mediad_*.h
+media_daemon/mediad.*
 
 # Side-by-side vendor-encoder build tree (links the vendor libraries).
-work/media_daemon-vendor-venc/
+media_daemon-vendor-venc/
 
 # device musl libasound (link-time only, not redistributable)
-work/media_daemon/prebuilt/
+media_daemon/prebuilt/
 *.key
 *.pem
 *.crt
 .env
 
-# dependency clones fetched by build.sh
+# dependency clones fetched by build.sh (shared project repos/; override REPOS_DIR)
 /repos/
 
 # assembled SD-card package (package.sh)

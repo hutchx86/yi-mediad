@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 yi-mediad contributors
 
-# build.sh - fetch the third-party build inputs into ./repos and
-# work/media_daemon/prebuilt (both gitignored). ./build.sh -h for usage.
+# build.sh - fetch the third-party build inputs into the shared repos/ dir and
+# media_daemon/prebuilt (both gitignored). ./build.sh -h for usage.
 set -eu
 
 usage() {
@@ -28,9 +28,10 @@ EOF
 }
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-DEPS="$REPO_ROOT/repos"
-PREBUILT="$REPO_ROOT/work/media_daemon/prebuilt"
-PATCHES="$REPO_ROOT/work/media_daemon/patches"
+REPOS_DIR="${REPOS_DIR:-$REPO_ROOT/../../../repos}"
+DEPS="$REPOS_DIR"
+PREBUILT="$REPO_ROOT/media_daemon/prebuilt"
+PATCHES="$REPO_ROOT/media_daemon/patches"
 
 # Pinned refs the tree is known to build against.
 TC_REPO="https://github.com/lindenis-org/lindenis-v536-prebuilt.git"
@@ -166,10 +167,10 @@ echo "  SDK       : $SDK_DIR"
 echo "  prebuilt  : $PREBUILT"
 echo
 echo "Build:"
-echo "  make -C work/media_daemon     # deploy build -> work/media_daemon/mediad"
+echo "  make -C media_daemon           # deploy build -> media_daemon/mediad"
 echo "  ./package.sh                   # deploy build + SD-card package -> dist/"
 
 if [ "$DO_BUILD" = yes ]; then
     say "building (default target)"
-    make -C "$REPO_ROOT/work/media_daemon"
+    make -C "$REPO_ROOT/media_daemon"
 fi

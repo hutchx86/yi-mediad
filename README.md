@@ -94,7 +94,7 @@ source, includes no vendor header and links no vendor object. Status by tier:
   / ME (roughly 2–4× the bits at the same QP).
 - **MPP middleware** — *done*. The clean-room packages `fenc_` (the libcedarc
   encoder API), `fisp_` (the ISP runtime) and `fcap_` (the capture runtime)
-  replace all twelve vendor files in `work/media_daemon/Makefile`'s `SRC_MPI` +
+  replace all twelve vendor files in `media_daemon/Makefile`'s `SRC_MPI` +
   `SRC_VENCODER`; `FREECODEC_HEADERS=1` resolves the daemon's own headers from
   freewinner's `mw_headers` (our declarations) instead of the SDK's.
 
@@ -159,7 +159,7 @@ but contributes no object to the binary.
 
 ```
 ./build.sh          # once: fetch toolchain, SDK, FAAC, ... into ./repos
-make -C work/media_daemon     # deploy build -> work/media_daemon/mediad
+make -C media_daemon           # deploy build -> media_daemon/mediad
 ./package.sh        # deploy build + SD-card package -> dist/
 ```
 
@@ -176,8 +176,8 @@ when the checkout has one), otherwise a sibling checkout at
 `make FW_ROOT=/path/to/freewinner`.
 
 `build.sh` fetches the musl cross toolchain, the V831 SDK (sparse), FAAC, the
-Melis RTOS ISP archive and a link-time `libasound.so` into `./repos/` and
-`work/media_daemon/prebuilt/` (both gitignored), and applies an SDK patch used
+Melis RTOS ISP archive and a link-time `libasound.so` into the shared `repos/` and
+`media_daemon/prebuilt/` (both gitignored), and applies an SDK patch used
 only by the vendor comparison builds. The deploy build links none of the SDK:
 the RTOS archive is reduced to an empty one. The Allwinner sources and binaries
 are fetched for interoperability and are **not** redistributed here. See
