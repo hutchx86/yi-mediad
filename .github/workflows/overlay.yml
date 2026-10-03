@@ -53,7 +53,7 @@ jobs:
           REV=$(git -C sisters/yi-mediad/yi-mediad-git rev-parse --short HEAD)
           TAG="${{ inputs.tag }}"; [ -n "$TAG" ] || TAG="${GITHUB_REF_NAME}"
           TAG=$(printf '%s' "$TAG" | tr '/' '-')          # keep it a valid filename
-          NAME="mediad-overlay-$TAG"
+          NAME="yi-mediad-$TAG"
           tar czf "$NAME.tar.gz" -C sisters/yi-mediad/yi-mediad-git/dist .
           sha256sum "$NAME.tar.gz" > SHA256SUMS
           echo "REV=$REV" >> "$GITHUB_ENV"
@@ -63,9 +63,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          name: mediad overlay ${{ env.TAG }}
+          name: yi-mediad
           body: |
-            Prebuilt **mediad** overlay for yi-protect (`${{ env.REV }}`).
+            Prebuilt mediad overlay for yi-protect (`${{ env.REV }}`).
 
             `mediad` is the clean-room video engine that replaces the stock Yi
             `rmm` encoder: it publishes the same `/dev/shm/fshare_frame_buf` ring,
@@ -75,7 +75,8 @@ jobs:
             **Install** on a camera that already runs yi-protect:
 
             ```
-            tar xzf mediad-overlay-${{ env.TAG }}.tar.gz -C /tmp/sd/mediad-overlay
+            mkdir -p /tmp/sd/mediad-overlay
+            tar xzf yi-mediad-${{ env.TAG }}.tar.gz -C /tmp/sd/mediad-overlay
             sh /tmp/sd/mediad-overlay/install-mediad.sh      # SD root defaults to /tmp/sd
             # reboot
             ```
@@ -83,10 +84,10 @@ jobs:
             `IS_MEDIAD=auto` (the default) selects `mediad` on the next boot.
             Verify the download against `SHA256SUMS`.
           files: |
-            mediad-overlay-${{ env.TAG }}.tar.gz
+            yi-mediad-${{ env.TAG }}.tar.gz
             SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mediad-overlay
-          path: mediad-overlay-*.tar.gz
+          name: yi-mediad
+          path: yi-mediad-*.tar.gz
