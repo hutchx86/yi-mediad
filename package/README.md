@@ -40,9 +40,8 @@ Install yi-protect first — see the yi-protect README, "Install (prebuilt)" or
   camera boot and be adopted, then follow section B below on the card.
 - **Mediad-bundled image.** Build this package first (`./build.sh &&
   ./package.sh`) so its `dist/` exists, then run yi-protect's `build_sd.sh`; it
-  packages `dist/` into the SD image. Write that image and set `IS_MEDIAD=yes`
-  in `yi-protect/etc/yi-protect.cfg` after first boot (section B's installer
-  does this flip for you; a bundled image does not).
+  packages `dist/` into the SD image. `IS_MEDIAD` defaults to `auto`, so the
+  image runs `mediad` on first boot with no config edit.
 
 > The published yi-protect release image is **rmm-only** — `mediad` is not built
 > into it. Getting `mediad` on a fresh camera means either the overlay (A/B
@@ -64,8 +63,8 @@ The installer:
 1. copies `mediad`, `mediad.sh` and the shared libraries into
    `yi-protect/{bin,script,lib}`, and `mediad.conf` into `etc` only if the card
    has none;
-2. sets `IS_MEDIAD=yes` in `yi-protect/etc/yi-protect.cfg` (the client then forwards
-   Protect's picture controls to mediad's control socket);
+2. sets `IS_MEDIAD=yes` in `yi-protect/etc/yi-protect.cfg` (the default `auto`
+   would also select it now that the files are present);
 3. edits `yi-protect/script/init.sh` to launch `mediad.sh start` where it launched
    the stock `./rmm` (backup: `init.sh.pre-mediad`);
 4. edits `yi-protect/script/watchdog.sh` to watch `mediad` instead of `./rmm`
