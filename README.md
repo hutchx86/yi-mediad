@@ -211,16 +211,26 @@ drop one in.
 
 ## Install
 
-Which flow you follow depends on the camera's starting point; both are covered
-in full in [package/README.md](package/README.md):
+A prebuilt overlay is published on the repo's **Releases** page
+(`mediad-overlay-<rev>.tar.gz` + `SHA256SUMS`); download and install it directly,
+no build needed:
 
-- **No yi-protect yet** — install yi-protect first (see its README), then either
-  overlay this package onto the card or build a `mediad`-bundled yi-protect image.
-- **Already running yi-protect** on the stock `rmm` — overlay this package onto
+```
+tar xzf mediad-overlay-<rev>.tar.gz -C /tmp/sd/mediad-overlay
+sh /tmp/sd/mediad-overlay/install-mediad.sh      # SD root defaults to /tmp/sd
+# reboot (or /tmp/sd/yi-protect/script/mediad.sh start with the stock rmm stopped)
+```
+
+Which flow you follow depends on the camera's starting point; both are covered
+in [package/README.md](package/README.md):
+
+- **No yi-protect yet** — install yi-protect first (see its README), then overlay
+  the downloaded archive.
+- **Already running yi-protect** on the stock `rmm` — overlay the archive onto
   the card.
 
-Either way: build with `./build.sh && ./package.sh`, copy `dist/` to the card as
-its own folder (do not overwrite the card's `yi-protect/`), run
+To build it yourself instead: `./build.sh && ./package.sh`, then copy `dist/` to
+the card as its own folder (do not overwrite the card's `yi-protect/`), run
 `sh /tmp/sd/mediad-dist/install-mediad.sh` on the camera, and reboot. The
 installer copies `yi-protect/{bin,etc,script,lib}`, sets `IS_MEDIAD=yes`, and
 reroutes `init.sh`/`watchdog.sh` to `mediad.sh start`, keeping `.pre-mediad`
