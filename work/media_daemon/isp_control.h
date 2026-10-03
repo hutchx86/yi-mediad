@@ -15,7 +15,7 @@
 #define ISP_CTL_PLTMWDR    (1u << 4)
 
 /* Runtime encoder bitrate (bps) by channel name ("high"/"low"), implemented in
- * main.c. Clamped to [48 k, 3 M] internally. Used by the `bitrate` control. */
+ * main.c. Clamped to [48 k, 6 M] internally. Used by the `bitrate` control. */
 int mediad_set_bitrate(const char *name, unsigned int bps);
 unsigned int mediad_get_bitrate(const char *name);
 /* Video codec by channel name ("high"/"low"/"all"): 0 = H.264, 1 = H.265/HEVC.

@@ -128,8 +128,9 @@ static int active_chans(void)
     return (e && e[0] == '0') ? 1 : NCHAN;
 }
 
-/* HIGH-channel geometry is keyed on the live sensor name (V4L2 subdev sysfs),
- * never the model: models share sensors. Unknown sensors get a 16:9 best effort. */
+/* HIGH-channel geometry defaults by live sensor name (V4L2 subdev sysfs).
+ * Unknown sensors get a 16:9 best effort; g_models[] below overrides per model
+ * (models share sensors but not necessarily their real stream size). */
 typedef struct {
     const char *sensor;
     int cap_w, cap_h;   /* VI capture */

@@ -41,9 +41,6 @@ mkdir -p dist/yi-protect/bin dist/yi-protect/etc dist/yi-protect/script dist/yi-
 cp work/media_daemon/mediad_rtos_v dist/yi-protect/bin/mediad
 "$STRIP" dist/yi-protect/bin/mediad 2>/dev/null || true
 cp package/yi-protect/etc/mediad.conf dist/yi-protect/etc/mediad.conf
-for env in package/yi-protect/etc/mediad.*.env; do
-    [ -f "$env" ] && cp "$env" dist/yi-protect/etc/
-done
 cp package/yi-protect/script/mediad.sh dist/yi-protect/script/mediad.sh
 cp package/install.sh dist/install-mediad.sh
 cp package/README.md dist/README.md

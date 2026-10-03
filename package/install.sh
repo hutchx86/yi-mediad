@@ -40,13 +40,6 @@ else
     install -m 0644 "$HERE/yi-protect/etc/mediad.conf" "$PREFIX/etc/mediad.conf"
     echo "  installed default mediad.conf"
 fi
-# Per-model mediad.<model>.env files are always refreshed; a local mediad.env
-# (per-deploy knobs) is never touched.
-for env in "$HERE/yi-protect/etc/"mediad.*.env; do
-    [ -f "$env" ] || continue
-    install -m 0644 "$env" "$PREFIX/etc/$(basename "$env")"
-    echo "  installed $(basename "$env")"
-done
 
 say "yi-protect.cfg: IS_MEDIAD=yes"
 if [ -f "$CFG" ]; then

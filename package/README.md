@@ -5,8 +5,8 @@ makes it run in place of the stock `rmm` encoder. `mediad` publishes the same
 `/dev/shm/fshare_frame_buf` ring the stock `rmm` does, so the yi-protect
 bridge/client stack is untouched.
 
-Supported models: `y623` (Yi Pro 2k), `h52ga` (Yi Dome Camera U), `r35gb`
-(Yi Dome Guard).
+Supported models: `y623` (Yi Pro 2k), `h51ga`/`h52ga` (Yi Dome Camera U),
+`r35gb` (Yi Dome Guard), `y291ga` (Yi 1080p Home).
 
 ## Contents
 
@@ -20,10 +20,9 @@ dist/
                              COPYING-FAAC, SOURCE.txt (exact source revisions)
   yi-protect/bin/mediad           stripped ARM binary (the deploy build)
   yi-protect/etc/mediad.conf      default settings (installed only if absent)
-  yi-protect/etc/mediad.r35gb.env per-model settings (always refreshed)
   yi-protect/script/mediad.sh     start/stop/restart/status/candidate
   yi-protect/lib/libvenc_base.so  clean-room encoder support (found via $ORIGIN/../lib)
-  yi-protect/lib/vin_crop_shim.so capture crop, preloaded by mediad.r35gb.env
+  yi-protect/lib/vin_crop_shim.so optional capture crop (LD_PRELOAD; not used by default)
 ```
 
 ## Install
@@ -38,9 +37,9 @@ dist/
 
 The installer:
 
-1. copies `mediad`, `mediad.sh`, the shared libraries and the per-model
-   `mediad.<model>.env` files into `yi-protect/{bin,script,lib,etc}`, and
-   `mediad.conf` only if the card has none;
+1. copies `mediad`, `mediad.sh` and the shared libraries into
+   `yi-protect/{bin,script,lib}`, and `mediad.conf` into `etc` only if the card
+   has none;
 2. sets `IS_MEDIAD=yes` in `yi-protect/etc/yi-protect.cfg` (the client then forwards
    Protect's picture controls to mediad's control socket);
 3. edits `yi-protect/script/init.sh` to launch `mediad.sh start` where it launched
@@ -55,8 +54,8 @@ yi-protect is already mediad-aware, it only copies files.
 ## Running
 
 - `mediad.sh start` sources `yi-protect/etc/mediad.env` (optional `export KEY=value`
-  knobs, see the repo's `docs/env.md`) and then `mediad.<model>.env`, and logs
-  each start to `/tmp/sd/mediad-pass-<n>.log`.
+  knobs, see the repo's `docs/env.md`) and then `mediad.<model>.env` if present,
+  and logs each start to `/tmp/sd/mediad-pass-<n>.log`.
 - **Rollback guard:** the first start that produces frames saves
   `yi-protect/bin/mediad.known-good`. If a later binary exits before producing
   frames, `mediad.sh` restores the known-good one; a boot latch
