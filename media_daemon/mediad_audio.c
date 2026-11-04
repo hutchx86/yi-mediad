@@ -14,6 +14,7 @@
 
 #include "fshare.h"
 #include "mediad_audio.h"
+#include "mediad_hum.h"
 #include "freecodec/aac_iface.h"
 
 #define AUD_RATE       16000
@@ -33,7 +34,8 @@ static __audio_enc_inf_t g_inf;
 static __com_internal_prameter_t g_com;
 static __pcm_buf_manager_t g_ring;
 static unsigned char g_ring_buf[AUD_RING_BYTES];
-static unsigned char g_read_buf[AUD_FRAME_BYTES];
+static int16_t g_read_buf[AUD_FRAME_BYTES / AUD_BYTES_SMP];
+static mediad_hum_t g_hum;
 static unsigned char g_out[AUD_OUT_CAP];
 
 /* Software mic gain (Q12): the codec's MIC1 gain tops out near 0 dB.
@@ -41,10 +43,8 @@ static unsigned char g_out[AUD_OUT_CAP];
 #define AUD_GAIN_DB_DEFAULT 12.0
 static int32_t g_gain_q12 = 4096;
 
-static void apply_gain(unsigned char *buf, int nsamp)
+static void apply_gain(int16_t *p, int nsamp)
 {
-    int16_t *p = (int16_t *)buf;
-
     if (g_gain_q12 == 4096)
         return;
     for (int i = 0; i < nsamp; i++) {
@@ -122,8 +122,10 @@ static void *audio_thread(void *arg)
         }
         fails = 0;
         if (got > 0) {
+            mediad_hum_process(&g_hum, g_read_buf, (int)got * AUD_CHANNELS);
             apply_gain(g_read_buf, (int)got * AUD_CHANNELS);
-            ring_push(g_read_buf, (int)got * AUD_CHANNELS * AUD_BYTES_SMP);
+            ring_push((const unsigned char *)g_read_buf,
+                      (int)got * AUD_CHANNELS * AUD_BYTES_SMP);
         }
 
         for (;;) {
@@ -192,6 +194,18 @@ int mediad_audio_start(void)
     }
     snd_pcm_prepare(g_pcm);
 
+    /* Mains hum: the mic front end picks up the 50 Hz line (with odd
+     * harmonics) at a level well above the noise floor. Notch it before the
+     * encoder; MEDIAD_HUM_HZ=0 disables, 60 selects the 60 Hz family. */
+    {
+        const char *hum_env = getenv("MEDIAD_HUM_HZ");
+        double hum_hz = hum_env ? atof(hum_env) : 50.0;
+
+        if (hum_hz < 0.0)
+            hum_hz = 0.0;
+        mediad_hum_init(&g_hum, hum_hz, (double)rate);
+    }
+
     memset(&g_ring, 0, sizeof(g_ring));
     g_ring.pBufStart = g_ring_buf;
     g_ring.pBufReadPtr = g_ring_buf;
@@ -242,6 +256,7 @@ int mediad_audio_start(void)
     g_up = 1;
     printf("[audio] ALSA capture (%s) -> freecodec AAC-LC ADTS, %u Hz mono, period %lu buffer %lu, gain %+.1f dB\n",
            snd_pcm_name(g_pcm), rate, (unsigned long)period, (unsigned long)bufsz, gain_db);
+    printf("[audio] hum notch: %s\n", g_hum.stages ? "on at the mains fundamental + odd harmonics" : "off");
     return 0;
 }
 

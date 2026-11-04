@@ -152,7 +152,7 @@ CFLAGS := $(CFG_DEFS) $(INC) -I$(BUILD) -Wall -Wno-unused-but-set-variable -Wno-
     $(EXTRA_CFLAGS)
 CXXFLAGS := $(CFLAGS)
 
-SRC_APP := main.c stub_audio_components.c fshare.c audio_codec.c mediad_audio.c mediad_venc.c mediad_hevc.c talkback.c osd.c stock_reg.c isp_control.c isp_config.c rmm_tuning.c
+SRC_APP := main.c stub_audio_components.c fshare.c audio_codec.c mediad_audio.c mediad_hum.c mediad_venc.c mediad_hevc.c talkback.c osd.c stock_reg.c isp_control.c isp_config.c rmm_tuning.c
 
 # STOCK_REG=1: replay a locally captured register table (tools/make_stock_reg.py).
 ifeq ($(STOCK_REG),1)
@@ -615,3 +615,9 @@ test-hevc: tests/test_hevc.c mediad_hevc.c mediad_hevc.h
 	cc -std=gnu11 -Wall -I. -I$(FW_ROOT_T)/mw_headers -I$(FW_ROOT_T)/codec/include -o /tmp/mediad_test_hevc tests/test_hevc.c mediad_hevc.c
 	/tmp/mediad_test_hevc
 	rm -f /tmp/mediad_test_hevc
+
+.PHONY: test-hum
+test-hum: tests/test_hum.c mediad_hum.c mediad_hum.h
+	cc -std=gnu11 -O2 -Wall -o /tmp/mediad_test_hum tests/test_hum.c mediad_hum.c -lm
+	/tmp/mediad_test_hum
+	rm -f /tmp/mediad_test_hum

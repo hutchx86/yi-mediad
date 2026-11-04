@@ -77,6 +77,7 @@ are H.264-only; H.265 has its own window. The startup codec is `MEDIAD_CODEC_HIG
 | --- | --- | --- |
 | `MEDIAD_NO_AUDIO` | unset | Set: no mic capture and no talkback. |
 | `MEDIAD_MIC_GAIN_DB` | 12 | Software mic gain in dB (0 disables). |
+| `MEDIAD_HUM_HZ` | 50 | Mains-hum notch: `0` disables, `50`/`60` select the fundamental. Notches the fundamental and odd harmonics (1st/3rd/5th/7th) before AAC/Opus; speech outside those bands is untouched. |
 | `MEDIAD_AO_CARD` | 0 | Talkback output: 0 internal codec (`default`), 1 daudio (`hw:1,0`). |
 
 ## OSD
