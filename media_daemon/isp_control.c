@@ -161,7 +161,9 @@ static int g_shutter;   /* VI_SHUTTIME_MODE_E */
  * for it to travel, then the LED level (0x7013, int32 pointer). */
 static void night_state_save(void);
 
-static void daynight_apply(int night)
+/* Hardware + tuning only. The ambient probe uses this to measure the day
+ * configuration without committing it. */
+static void daynight_hw(int night)
 {
     int32_t lvl = night ? 100 : 0;
     if (night) {
@@ -177,13 +179,18 @@ static void daynight_apply(int night)
         if (cpld_req(CPLD_LED_LEVEL, &lvl) != 0)
             fprintf(stderr, "mediad: CPLD led 0 (0x7013) failed\n");
     }
-    g_ir_cut = night ? 1 : 0;
-    g_ir_led = (int)lvl;
-    night_state_save();
     isp_config_set_daynight(night);
     /* Re-apply the CCM so night's forced monochrome takes effect regardless of
      * the saturation control. */
     isp_config_set_saturation(isp_config_get_saturation());
+}
+
+static void daynight_apply(int night)
+{
+    daynight_hw(night);
+    g_ir_cut = night ? 1 : 0;
+    g_ir_led = night ? 100 : 0;
+    night_state_save();
 }
 
 /* Auto day/night from the AE light value (1/100 EV): lux ~= 2.5 * 2^(lv/100),
@@ -193,10 +200,32 @@ static void daynight_apply(int night)
 #define NIGHT_POLL_SEC  3
 #define NIGHT_DEBOUNCE  5         /* consecutive agreeing polls before switching */
 #define NIGHT_MIN_SWITCH_TICKS 10 /* >=30 s between switches */
-#define NIGHT_AMBIENT_PERIOD 120  /* IR-off daylight confirm at most every 2 min */
+#define NIGHT_AMBIENT_PERIOD 120  /* first ambient probe after 2 min of night */
 #define NIGHT_AMBIENT_MAX_PERIOD 900 /* ... backing off to 15 min while it stays dark */
 #define NIGHT_SETTLE_POLLS 4      /* polls (12 s) for AE to settle under IR */
-#define NIGHT_AMBIENT_RISE_LV 100 /* 1 EV above the IR-lit baseline = real ambient light */
+
+/* GetEnvLV is inflated by the IR LEDs and by the night tuning itself, so a
+ * dark room measured in night mode still reads like daylight. Probe in the
+ * configuration that would actually run: filter in, LED off, day tuning.
+ * Leaves the hardware there; the caller keeps it (day) or restores night. */
+static int probe_ambient_lv(void)
+{
+    int i, lv = 0, prev = -1000, stable = 0;
+
+    daynight_hw(0);
+    for (i = 0; i < 20; i++) {
+        usleep(500 * 1000);
+        lv = AW_MPI_ISP_GetEnvLV(0);
+        if (lv > 0 && abs(lv - prev) <= 8)
+            stable++;
+        else
+            stable = 0;
+        prev = lv;
+        if (stable >= 4)            /* ~2 s settled: the AE is not still ramping */
+            break;
+    }
+    return lv;
+}
 
 /* Switch-to-night threshold, lux: the estimate floors at about 4-8 "lux" in
  * the dark, so it must sit above that. */
@@ -223,9 +252,7 @@ static void *night_poller(void *arg)
     int last_switch_tick = 0;
     time_t amb_next = 0;
     int amb_period = NIGHT_AMBIENT_PERIOD;
-    /* With the IR on, lv is inflated: track its settled minimum (ir_base) and
-     * consider day only once lv rises clearly above it. */
-    int prev_night = -1, ir_base = -1, settle = 0;
+    int prev_night = -1, settle = 0;
     int prev_lv = -1000, steady = 0;    /* decisions only on a settled AE */
     (void)arg;
     while (g_night_run) {
@@ -241,7 +268,6 @@ static void *night_poller(void *arg)
         is_night = g_ir_cut;
         if (is_night != prev_night) {       /* entered night (ours or manual) */
             prev_night = is_night;
-            ir_base = -1;
             settle = NIGHT_SETTLE_POLLS;
             amb_period = NIGHT_AMBIENT_PERIOD;
         }
@@ -259,16 +285,14 @@ static void *night_poller(void *arg)
         if (steady < 2)
             continue;
         thr = lux_to_lv(g_night_lux);
-        /* Night below thr-hyst; back to day only after lv rises
-         * NIGHT_AMBIENT_RISE_LV above the IR baseline and passes the IR-off check. */
+        /* Night below thr-hyst. Night -> day is never decided from the IR-lit
+         * lv; it waits for the scheduled ambient probe. */
         if (is_night) {
             if (settle > 0) {
                 settle--;
                 want = 1;
             } else {
-                if (ir_base < 0 || lv < ir_base)
-                    ir_base = lv;
-                want = !(lv >= ir_base + NIGHT_AMBIENT_RISE_LV);
+                want = time(NULL) < amb_next;   /* 0 (day candidate) when the probe is due */
             }
         } else {
             want = lv < thr - NIGHT_HYST_LV;
@@ -283,40 +307,30 @@ static void *night_poller(void *arg)
          * the hardware even if it already agrees. */
         resync = 0;
         if (is_night && want == 0) {
-            /* The IR-lit lv cannot tell daylight from IR: occasionally confirm
-             * with the LED briefly off. */
+            /* Confirm in the day configuration; the probe leaves the hardware
+             * there, so keep it (day) or restore night. */
             time_t now = time(NULL);
-            int32_t off = 0, on = 100;
-            int lv2 = 0, prev = -1000, stable = 0, i;
+            int lv2;
             if (now < amb_next)
                 continue;
-            cpld_req(CPLD_LED_LEVEL, &off);
-            /* Let the AE converge without the IR; stop early once clearly dark
-             * or once lv holds steady for ~1 s. */
-            for (i = 0; i < 20; i++) {
-                usleep(300 * 1000);
-                lv2 = AW_MPI_ISP_GetEnvLV(0);
-                if (lv2 > 0 && lv2 < thr - NIGHT_HYST_LV)
-                    break;
-                stable = (lv2 > 0 && abs(lv2 - prev) <= 8) ? stable + 1 : 0;
-                prev = lv2;
-                if (stable >= 3)
-                    break;
-            }
-            if (!(lv2 > 0 && lv2 >= thr + NIGHT_HYST_LV)) {
-                cpld_req(CPLD_LED_LEVEL, &on);   /* still dark: restore */
-                g_ir_led = 100;
-                amb_next = now + amb_period;
-                if (amb_period < NIGHT_AMBIENT_MAX_PERIOD)
-                    amb_period *= 2;
-                ir_base = -1;                   /* re-baseline after the blink */
-                settle = NIGHT_SETTLE_POLLS;
-                fprintf(stderr, "mediad: auto day/night IR-off check lv=%d -> stay night "
-                        "(next check in %d s)\n", lv2, (int)(amb_next - now));
+            lv2 = probe_ambient_lv();
+            if (lv2 > 0 && lv2 >= thr + NIGHT_HYST_LV) {
+                g_ir_cut = 0;
+                g_ir_led = 0;
+                night_state_save();
+                is_night = 0;
+                last_switch_tick = tick;
+                fprintf(stderr, "mediad: auto day/night ambient probe lv=%d -> day\n", lv2);
                 continue;
             }
-            fprintf(stderr, "mediad: auto day/night IR-off check lv=%d -> day\n", lv2);
-            /* fall through: LED already off */
+            daynight_apply(1);              /* still dark: restore night */
+            amb_next = now + amb_period;
+            if (amb_period < NIGHT_AMBIENT_MAX_PERIOD)
+                amb_period *= 2;
+            settle = NIGHT_SETTLE_POLLS;
+            fprintf(stderr, "mediad: auto day/night ambient probe lv=%d -> stay night "
+                    "(next check in %d s)\n", lv2, (int)(amb_next - now));
+            continue;
         }
         is_night = want;
         last_switch_tick = tick;
