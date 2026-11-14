@@ -44,11 +44,12 @@ yi-protect's settings page (see the README).
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `MEDIAD_HIGH_BPS`, `MEDIAD_LOW_BPS` | 2800000 / 700000, or the persisted Protect value | Bitrate in bps; wins over the persisted value. |
-| `MEDIAD_FPS` | 20 | Encode frame rate, clamped 5..30; below 20, source frames are dropped. |
+| `MEDIAD_FPS` | 20 | Capture and HIGH encode rate, clamped 5..30; source frames are dropped to reach it. |
+| `MEDIAD_FPS_LOW` | 15 | LOW encode target, clamped 5..`MEDIAD_FPS`; the low channel drops to it independently. `0` follows `MEDIAD_FPS`. |
 | `MEDIAD_PROFILE` | 2 | 0 baseline, 1 main, 2 high. |
 | `MEDIAD_RC` | 1 | 0 CBR, 1 VBR, 2 AVBR. |
 | `MEDIAD_MINQP`, `MEDIAD_MAXQP` | 10 / 40 | QP floor and cap. |
-| `MEDIAD_GOP` | 5 s HIGH, 1 s LOW | Keyframe interval in frames, both channels. |
+| `MEDIAD_GOP` | 5 s both channels | Keyframe interval in frames, computed from each channel's fps. |
 | `MEDIAD_GOP_HIGH`, `MEDIAD_GOP_LOW` | as above | Per channel; override `MEDIAD_GOP`. |
 | `MEDIAD_3DNR` | 0 | Encoder 3D filter level 0..3 (smears motion). |
 | `MEDIAD_FASTENC` | 0 | Encoder fast-encode flag. |

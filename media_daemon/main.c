@@ -73,6 +73,7 @@ typedef struct {
      * never hit an encoder mid-close/open. */
     pthread_mutex_t vencMu;
     pthread_t tid;
+    int fps;                   /* encode target; 0 = g_fps */
 } media_chan;
 
 static media_chan g_chans[] = {
@@ -87,8 +88,11 @@ static int venc_start(media_chan *ch);   /* defined below; used by the codec swi
 static volatile sig_atomic_t g_stop;
 static volatile uint32_t g_last_frame_ms;
 
-/* Encode fps; MEDIAD_FPS lowers it when the single A7 runs out of headroom. */
+/* Capture/HIGH encode fps; MEDIAD_FPS lowers it when the A7 runs out of
+ * headroom. MEDIAD_FPS_LOW gives the LOW channel its own (lower) target. */
 static int g_fps = SRC_FPS;
+/* Optional independent low-channel rate (MEDIAD_FPS_LOW); 0 = follow g_fps. */
+static int g_fps_low;
 
 /* Monotonic microseconds, for per-call timing in the stream thread. */
 static uint64_t now_us(void)
@@ -792,10 +796,11 @@ static void *get_stream_thread(void *arg)
         }
         fails = 0;
 
-        /* Drop source frames to reach g_fps, phase-locked to the capture PTS;
-         * a late frame resyncs instead of bursting. */
-        if (g_fps > 0 && g_fps < SRC_FPS) {
-            uint64_t interval = 1000000ull / (uint64_t)g_fps;
+        /* Drop source frames to reach this channel's target, phase-locked to
+         * the capture PTS; a late frame resyncs instead of bursting. The
+         * capture runs at g_fps, so the low channel can run slower than HIGH. */
+        if (ch->fps > 0 && ch->fps < g_fps) {
+            uint64_t interval = 1000000ull / (uint64_t)ch->fps;
 
             if (ch->next_due_us == 0)
                 ch->next_due_us = ((const fwm_video_frame_t *)&fi.v_frame)->mpts;
@@ -1025,9 +1030,9 @@ static int venc_start(media_chan *ch)
         cfg.out_w = cfg.out_h = 0;
         cfg.out_x = cfg.out_y = -1;
         cfg.crop_x = cfg.crop_y = -1;
-        cfg.fps = g_fps;
+        cfg.fps = ch->fps > 0 ? ch->fps : g_fps;
         cfg.bitrate = (int)ch->bitrate;
-        cfg.gop = g_fps * (strcmp(ch->name, "high") == 0 ? 5 : 1);
+        cfg.gop = cfg.fps * 5;        /* 5 s IDR, as the native substreams */
         cfg.profile = 2;
         cfg.min_qp = 10;
         cfg.max_qp = 40;
@@ -1175,7 +1180,19 @@ int main(void)
             if (g_fps > 30)
                 g_fps = 30;
         }
+        if ((e = getenv("MEDIAD_FPS_LOW"))) {
+            g_fps_low = atoi(e);
+            if (g_fps_low < 5)
+                g_fps_low = 5;
+            if (g_fps_low > g_fps)
+                g_fps_low = g_fps;
+        }
+        g_chans[0].fps = g_fps;
+        if (NCHAN > 1)
+            g_chans[1].fps = g_fps_low > 0 ? g_fps_low : g_fps;
         fprintf(stderr, "mediad: fps=%d\n", g_fps);
+        if (NCHAN > 1)
+            fprintf(stderr, "mediad: fps low=%d\n", g_chans[1].fps);
     }
     apply_geometry();
     g_vendor_wdr = load_vendor_profile();
