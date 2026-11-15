@@ -74,12 +74,16 @@ typedef struct {
     pthread_mutex_t vencMu;
     pthread_t tid;
     int fps;                   /* encode target; 0 = g_fps */
+    int enabled;               /* MED is opt-in; HIGH/LOW always start */
 } media_chan;
 
 static media_chan g_chans[] = {
     /* Default bitrates; runtime values come from mediad.bitrate / Protect. */
     { "high", 0, 0, 0, FSHARE_TYPE_HIGH, 2304, 1296, 2304, 1296, 2800000, NULL, 0, 0, 0 },
     { "low",  1, 0, 1, FSHARE_TYPE_LOW,   640,  360,  640,  360,  700000, NULL, 0, 0, 0 },
+    /* MED sits between them; enabled by MEDIAD_MED_W/H so a two-channel
+     * deployment does not pay for its VI/VENC buffers. */
+    { "med",  2, 0, 2, FSHARE_TYPE_MED,  1024,  576, 1024,  576, 1000000, NULL, 0, 0, 0 },
 };
 #define NCHAN ((int)(sizeof(g_chans) / sizeof(g_chans[0])))
 
@@ -125,11 +129,15 @@ static void lock_memory(void)
         fprintf(stderr, "mediad: memory locked (never swapped)\n");
 }
 
-/* MEDIAD_LOW=0 runs HIGH only. */
+/* MEDIAD_LOW=0 runs HIGH only; the MED channel is opt-in via MEDIAD_MED_W/H. */
 static int active_chans(void)
 {
     const char *e = getenv("MEDIAD_LOW");
-    return (e && e[0] == '0') ? 1 : NCHAN;
+    int n = (e && e[0] == '0') ? 1 : 2;
+
+    if (n > 1 && g_chans[2].enabled)
+        n = 3;
+    return n;
 }
 
 /* HIGH-channel geometry defaults by live sensor name (V4L2 subdev sysfs).
@@ -933,6 +941,11 @@ static int vi_start(media_chan *ch)
     attr.nbufs = 3;          /* driver rejects 2; 5 costs ~9 MB and OOMs */
     attr.nplanes = 2;
     attr.use_current_window = 0;
+    /* The MED shares the running sensor/ISP; reconfiguring it for a third vipp
+     * stalls the existing HIGH/LOW captures. Use the current window and let the
+     * vipp scale to the MED size. */
+    if (strcmp(ch->name, "med") == 0)
+        attr.use_current_window = 1;
 
     /* Sensor WDR mode follows the extracted tuning's flag, else the sensor
      * table; MEDIAD_WDR forces it. */
@@ -1149,7 +1162,6 @@ int main(void)
 
     printf("mediad build %s\n", MEDIAD_BUILD_STAMP);
     protect_from_oom();
-    nc = active_chans();
     {
         const char *e;
         if ((e = getenv("MEDIAD_HIGH_BPS")))
@@ -1194,6 +1206,32 @@ int main(void)
         if (NCHAN > 1)
             fprintf(stderr, "mediad: fps low=%d\n", g_chans[1].fps);
     }
+    /* Optional MED channel between LOW and HIGH: 1024x576/1 Mbps/15 fps by
+     * default, opt in with MEDIAD_MED_W/H (see docs/env.md). */
+    {
+        const char *w = getenv("MEDIAD_MED_W");
+        const char *h = getenv("MEDIAD_MED_H");
+        const char *b = getenv("MEDIAD_MED_BPS");
+        const char *f = getenv("MEDIAD_FPS_MED");
+        int mw = w ? atoi(w) : 0;
+        int mh = h ? atoi(h) : 0;
+
+        if (mw > 0 && mh > 0) {
+            g_chans[2].cap_w = g_chans[2].pic_w = mw;
+            g_chans[2].cap_h = g_chans[2].pic_h = mh;
+            g_chans[2].bitrate = clamp_bitrate(b ? (unsigned int)strtoul(b, NULL, 0) : 1000000);
+            if (f) {
+                int v = atoi(f);
+                g_chans[2].fps = v < 5 ? 5 : (v > g_fps ? g_fps : v);
+            } else {
+                g_chans[2].fps = g_fps_low > 0 ? g_fps_low : (g_fps > 15 ? 15 : g_fps);
+            }
+            g_chans[2].enabled = 1;
+            fprintf(stderr, "mediad: med %dx%d @%u bps, fps=%d\n",
+                    mw, mh, g_chans[2].bitrate, g_chans[2].fps);
+        }
+    }
+    nc = active_chans();
     apply_geometry();
     g_vendor_wdr = load_vendor_profile();
     if (g_vendor_wdr >= 0)
@@ -1233,9 +1271,14 @@ int main(void)
     /* Per-channel start-up codec: MEDIAD_CODEC_HIGH / MEDIAD_CODEC_LOW, or
      * MEDIAD_CODEC; "h265"/"1" selects HEVC, anything else H.264. Runtime
      * switches come through the `codec` control (mediad_set_codec). */
-    for (i = 0; i < NCHAN; i++) {
-        const char *ce = getenv(strcmp(g_chans[i].name, "high") == 0
-                                ? "MEDIAD_CODEC_HIGH" : "MEDIAD_CODEC_LOW");
+    for (i = 0; i < nc; i++) {
+        const char *ce;
+        if (strcmp(g_chans[i].name, "high") == 0)
+            ce = getenv("MEDIAD_CODEC_HIGH");
+        else if (strcmp(g_chans[i].name, "low") == 0)
+            ce = getenv("MEDIAD_CODEC_LOW");
+        else
+            ce = getenv("MEDIAD_CODEC_MED");
         if (!ce)
             ce = getenv("MEDIAD_CODEC");
         if (ce) {
@@ -1251,8 +1294,18 @@ int main(void)
     /* Order: all vipps, ISP_Run (needs a configured sensor subdev), virchns,
      * encoders, then enable virchns. */
     for (i = 0; i < nc; i++) {
-        if (vi_start(&g_chans[i]) < 0)
+        if (vi_start(&g_chans[i]) < 0) {
+            if (i == 2) {
+                /* A failed MED must not take the camera's two working streams
+                 * down; drop it and continue two-channel. */
+                fprintf(stderr, "mediad: MED VI setup failed; continuing without MED\n");
+                AW_MPI_VI_DestoryVipp(g_chans[2].vi_dev);
+                g_chans[2].enabled = 0;
+                nc = 2;
+                break;
+            }
             return 1;
+        }
     }
 
     AW_MPI_ISP_Run(isp_dev);

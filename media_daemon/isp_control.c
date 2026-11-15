@@ -110,8 +110,10 @@ static int set_codec(int d, int v)      { (void)d; return mediad_set_codec("all"
 static int get_codec(int d, int *v)     { (void)d; *v = mediad_get_codec("high"); return 0; }
 static int set_codec_high(int d, int v) { (void)d; return mediad_set_codec("high", v); }
 static int set_codec_low(int d, int v)  { (void)d; return mediad_set_codec("low", v); }
+static int set_codec_med(int d, int v)  { (void)d; return mediad_set_codec("med", v); }
 static int get_codec_high(int d, int *v){ (void)d; *v = mediad_get_codec("high"); return 0; }
 static int get_codec_low(int d, int *v) { (void)d; *v = mediad_get_codec("low"); return 0; }
+static int get_codec_med(int d, int *v) { (void)d; *v = mediad_get_codec("med"); return 0; }
 
 /* Burned-in OSD (osd.c). Keys are int-valued; the camera name is a string
  * sourced from MEDIAD_OSD_NAME / the device-name file. */
@@ -201,7 +203,9 @@ static void daynight_apply(int night)
 #define NIGHT_DEBOUNCE  5         /* consecutive agreeing polls before switching */
 #define NIGHT_MIN_SWITCH_TICKS 10 /* >=30 s between switches */
 #define NIGHT_AMBIENT_PERIOD 120  /* first ambient probe after 2 min of night */
-#define NIGHT_AMBIENT_MAX_PERIOD 900 /* ... backing off to 15 min while it stays dark */
+#define NIGHT_AMBIENT_MAX_PERIOD 14400 /* gradual-change backoff cap (4 h) */
+#define NIGHT_AMBIENT_DARK_PERIOD 14400 /* pitch black: wait for the scene to change */
+#define NIGHT_AMBIENT_TRIGGER_LV 80 /* night-scene lv change that brings the probe forward */
 #define NIGHT_SETTLE_POLLS 4      /* polls (12 s) for AE to settle under IR */
 
 /* GetEnvLV is inflated by the IR LEDs and by the night tuning itself, so a
@@ -254,6 +258,7 @@ static void *night_poller(void *arg)
     int amb_period = NIGHT_AMBIENT_PERIOD;
     int prev_night = -1, settle = 0;
     int prev_lv = -1000, steady = 0;    /* decisions only on a settled AE */
+    int night_ref = -1;    /* night lv baseline for the scene-change probe trigger */
     (void)arg;
     while (g_night_run) {
         struct timespec ts = { NIGHT_POLL_SEC, 0 };
@@ -262,7 +267,7 @@ static void *night_poller(void *arg)
         if (!g_night_run)
             break;
         mode = g_nightvision;
-        if (mode != 2) { cross = 0; resync = 1; continue; }
+        if (mode != 2) { cross = 0; resync = 1; night_ref = -1; continue; }
         /* Re-read the filter state every poll: manual switches change g_ir_cut
          * behind this loop's back. */
         is_night = g_ir_cut;
@@ -270,6 +275,7 @@ static void *night_poller(void *arg)
             prev_night = is_night;
             settle = NIGHT_SETTLE_POLLS;
             amb_period = NIGHT_AMBIENT_PERIOD;
+            night_ref = -1;
         }
         lv = AW_MPI_ISP_GetEnvLV(0);
         if (lv <= 0)
@@ -288,6 +294,18 @@ static void *night_poller(void *arg)
         /* Night below thr-hyst. Night -> day is never decided from the IR-lit
          * lv; it waits for the scheduled ambient probe. */
         if (is_night) {
+            if (night_ref < 0) {
+                night_ref = lv;
+            } else if (abs(lv - night_ref) >= NIGHT_AMBIENT_TRIGGER_LV) {
+                /* The IR-lit scene changed enough that the ambient light may
+                 * have changed too: probe now instead of waiting out a 4 h
+                 * dark-room backoff. */
+                fprintf(stderr, "mediad: auto day/night night scene changed lv=%d (ref=%d); probing sooner\n",
+                        lv, night_ref);
+                amb_next = 0;
+                amb_period = NIGHT_AMBIENT_PERIOD;
+                night_ref = lv;
+            }
             if (settle > 0) {
                 settle--;
                 want = 1;
@@ -295,6 +313,7 @@ static void *night_poller(void *arg)
                 want = time(NULL) < amb_next;   /* 0 (day candidate) when the probe is due */
             }
         } else {
+            night_ref = -1;
             want = lv < thr - NIGHT_HYST_LV;
         }
         if (want == is_night && !resync) { cross = 0; continue; }
@@ -324,9 +343,15 @@ static void *night_poller(void *arg)
                 continue;
             }
             daynight_apply(1);              /* still dark: restore night */
-            amb_next = now + amb_period;
-            if (amb_period < NIGHT_AMBIENT_MAX_PERIOD)
+            /* A pitch-black scene cannot turn day without a visible-light
+             * change, which the night lv trigger above catches. Do not keep
+             * switching the IR off every few minutes in a dark room. */
+            if (lv2 <= 0)
+                amb_period = NIGHT_AMBIENT_DARK_PERIOD;
+            else if (amb_period < NIGHT_AMBIENT_MAX_PERIOD)
                 amb_period *= 2;
+            amb_next = now + amb_period;
+            night_ref = -1;                 /* re-baseline after the IR restore */
             settle = NIGHT_SETTLE_POLLS;
             fprintf(stderr, "mediad: auto day/night ambient probe lv=%d -> stay night "
                     "(next check in %d s)\n", lv2, (int)(amb_next - now));
@@ -334,6 +359,7 @@ static void *night_poller(void *arg)
         }
         is_night = want;
         last_switch_tick = tick;
+        night_ref = -1;
         daynight_apply(is_night);
         fprintf(stderr, "mediad: auto day/night -> %s (lv=%d lux=%.1f "
                 "thr_lux=%.1f)\n", is_night ? "night" : "day", lv,
@@ -478,6 +504,7 @@ static struct ctl g_controls[] = {
     { "codec",       0,                  0,   1,   0,   set_codec,      get_codec },
     { "codec_high",  0,                  0,   1,   0,   set_codec_high, get_codec_high },
     { "codec_low",   0,                  0,   1,   0,   set_codec_low,  get_codec_low },
+    { "codec_med",   0,                  0,   1,   0,   set_codec_med,  get_codec_med },
     /* HDR / frequency are aliases for the raw wdr/flicker controls (the
      * caller does the UI encoding). */
     { "hdr",         0,                  0,   255, 0,   set_wdr,         get_wdr, 1 },
