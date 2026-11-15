@@ -804,6 +804,22 @@ static void *get_stream_thread(void *arg)
         }
         fails = 0;
 
+        /* One line per channel per run: the VI's real buffer geometry. The
+         * encoder derives its LBC strides from the picture width, so a mismatch
+         * here is invisible to the codec and shows up as an encoder fault. */
+        if (count == 0) {
+            const fwm_video_frame_t *vf = (const fwm_video_frame_t *)&fi.v_frame;
+
+            fprintf(stderr,
+                    "[%s] VI frame %ux%u fmt=0x%x comp=%u "
+                    "stride=%u/%u/%u phy=%08x/%08x hdr_stride=%u\n",
+                    ch->name, (unsigned)vf->width, (unsigned)vf->height,
+                    (unsigned)vf->pixel_format, (unsigned)vf->compress_mode,
+                    (unsigned)vf->stride[0], (unsigned)vf->stride[1],
+                    (unsigned)vf->stride[2], (unsigned)vf->phy_addr[0],
+                    (unsigned)vf->phy_addr[1], (unsigned)vf->header_stride[0]);
+        }
+
         /* Drop source frames to reach this channel's target, phase-locked to
          * the capture PTS; a late frame resyncs instead of bursting. The
          * capture runs at g_fps, so the low channel can run slower than HIGH. */
