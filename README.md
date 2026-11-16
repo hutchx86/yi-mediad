@@ -179,7 +179,9 @@ no automatic rollback.
 
 `mediad` listens on an `AF_UNIX` socket (`/tmp/mediad_ctl.sock`, `MEDIAD_CTL_SOCK`):
 `set <key> <n>`, `get <key>`, `list`, `reset`, `ping`, `pin <key> <n>`,
-`unpin <key>`, `pinned <key>`. Picture levels are 0 to 100 with 50 = stock.
+`unpin <key>`, `pinned <key>`, `tz <posix-rule>`. Picture levels are 0 to 100
+with 50 = stock. `tz` sets the OSD's POSIX TZ rule (the client resolves
+Protect's timezone to it, since the camera ships no zoneinfo).
 
 - **Web UI:** yi-protect's settings page (`http://<camera>/`, `WEBUI_PORT`,
   default 80, 0 = off) edits and pins these values. mediad also has a minimal

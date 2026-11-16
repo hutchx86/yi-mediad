@@ -829,6 +829,16 @@ static void handle_conn(int fd)
             }
             g_mask = 0;
             dprintf(fd, "ok reset\n");
+        } else if (strncmp(line, "tz ", 3) == 0 && line[3]) {
+            /* POSIX TZ rule from Protect via the client. The camera has no
+             * zoneinfo, so the client resolves the controller's IANA name to
+             * the current offset; localtime()/the OSD pick it up immediately. */
+            if (setenv("TZ", line + 3, 1) == 0) {
+                tzset();
+                dprintf(fd, "ok tz %s\n", line + 3);
+            } else {
+                dprintf(fd, "err tz failed\n");
+            }
         } else if (sscanf(line, "set %63s %d", key, &value) == 2) {
             const struct ctl *c = find_ctl(key);
             if (!c) {
