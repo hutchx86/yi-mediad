@@ -1,4 +1,4 @@
-# yi-mediad — a clean-room media daemon for Yi/V831 cameras
+# yi-mediad: a clean-room media daemon for Yi/V831 cameras
 
 <div align="center">
 
@@ -9,7 +9,7 @@
 Yi cameras.**
 **It publishes the same `/dev/shm/fshare_frame_buf` ring the stock daemon does,
 so the [yi-protect](https://github.com/hutchx86/yi-protect) Protect bridge is
-untouched — but with clean-room capture, ISP and H.264/H.265 encode, and a
+untouched, but with clean-room capture, ISP and H.264/H.265 encode, and a
 picture-control surface the stock daemon never had.**
 
 </div>
@@ -104,29 +104,29 @@ row is only the fallback for an unlisted model (best-effort 16:9).
 
 ## Features
 
-- **Drop-in producer** — publishes H.264 NALs (Annex-B, SPS/PPS re-emitted per
+- **Drop-in producer**, publishes H.264 NALs (Annex-B, SPS/PPS re-emitted per
   IDR) onto the stock ring at the stock offset/header size.
-- **Two video channels** — HIGH (`vi_dev 0`) and LOW (640×360, `vi_dev 1`), both
+- **Two video channels**, HIGH (`vi_dev 0`) and LOW (640×360, `vi_dev 1`), both
   20 fps, the stock two-vipp topology; `MEDIAD_LOW=0` for HIGH-only.
-- **Hardware H.264 / H.265 encode** — the clean-room **freecodec** engine
+- **Hardware H.264 / H.265 encode**, the clean-room **freecodec** engine
   (statically linked) plus `libvenc_base.so`; no vendor blob. H.265 is validated
   on `y623` only.
-- **Bitrate** — HIGH 2.8 Mbps / LOW 0.7 Mbps by default; HIGH adjustable from
+- **Bitrate**, HIGH 2.8 Mbps / LOW 0.7 Mbps by default; HIGH adjustable from
   Protect and persisted. `MEDIAD_HIGH_BPS` / `MEDIAD_LOW_BPS` override at boot.
-- **Mic audio** — ALSA capture → AAC-LC, 16 kHz mono, ADTS, into the same ring.
-- **ISP pipeline** — the clean-room `freewinner` libisp framework, 3A and
+- **Mic audio**, ALSA capture → AAC-LC, 16 kHz mono, ADTS, into the same ring.
+- **ISP pipeline**, the clean-room `freewinner` libisp framework, 3A and
   register/config tiers, on the V831 ISP-521 ABI.
-- **On-camera vendor tuning** — reads the camera's own OEM ISP config from
+- **On-camera vendor tuning**, reads the camera's own OEM ISP config from
   `/home/app/rmm` at first init, remaps it, caches it on SD. No blob or
   per-firmware address is compiled in.
 - **WDR + PLTM**, **night vision** (IR-cut + IR LED + day/night ISP tuning swap;
   auto at a lux threshold), **shutter exposure** (Auto / Frame Capture / Best Low
   Light).
-- **Control surface** — an `AF_UNIX` socket plus `mediad.conf`; see
+- **Control surface**, an `AF_UNIX` socket plus `mediad.conf`; see
   [Configuration](#configuration).
-- **Robustness** — self-watchdog (exit after 15 s with no frames); `oom_score_adj=-1000`;
+- **Robustness**, self-watchdog (exit after 15 s with no frames); `oom_score_adj=-1000`;
   `nbufs=3` to fit the 60 MB box.
-- **Burned-in OSD** — date/time, camera name, bitrate/stats line and a logo,
+- **Burned-in OSD**, date/time, camera name, bitrate/stats line and a logo,
   rendered camera-side into the encoder overlay engine.
 
 ## Requirements
@@ -163,9 +163,9 @@ sh /tmp/sd/mediad-overlay/install-mediad.sh      # SD root defaults to /tmp/sd
 Which flow you are at doesn't change the install step; both are covered in
 [package/README.md](package/README.md):
 
-- **No yi-protect yet** — install yi-protect first (see its README), then overlay
+- **No yi-protect yet**, install yi-protect first (see its README), then overlay
   the downloaded archive.
-- **Already running yi-protect** on the stock `rmm` — overlay the archive.
+- **Already running yi-protect** on the stock `rmm`, overlay the archive.
 
 To build it yourself instead: `./build.sh && ./package.sh`, then copy `dist/` to
 the card as its own folder (do not overwrite the card's `yi-protect/`), run
@@ -179,7 +179,7 @@ no automatic rollback.
 
 `mediad` listens on an `AF_UNIX` socket (`/tmp/mediad_ctl.sock`, `MEDIAD_CTL_SOCK`):
 `set <key> <n>`, `get <key>`, `list`, `reset`, `ping`, `pin <key> <n>`,
-`unpin <key>`, `pinned <key>`. Picture levels are 0–100 with 50 = stock.
+`unpin <key>`, `pinned <key>`. Picture levels are 0 to 100 with 50 = stock.
 
 - **Web UI:** yi-protect's settings page (`http://<camera>/`, `WEBUI_PORT`,
   default 80, 0 = off) edits and pins these values. mediad also has a minimal
@@ -206,16 +206,16 @@ list` prints them).
 
 ## Roadmap / known limitations
 
-The goal — a deploy build with no proprietary blob — is reached: a bare `make`
+The goal, a deploy build with no proprietary blob, is reached: a bare `make`
 (what `package.sh` runs) compiles no vendor source, includes no vendor header and
 links no vendor object.
 
-- **ISP 3A + register/config** — *done* (clean-room freewinner).
-- **AAC** — *done* (freecodec over FAAC; `libaacenc.a` not linked).
-- **H.264/H.265 encoder + `libvenc_base.so`** — *done* (clean-room freecodec).
-  Residual gap vs the vendor engine: rate control / ME (roughly 2–4× the bits at
+- **ISP 3A + register/config**, *done* (clean-room freewinner).
+- **AAC**, *done* (freecodec over FAAC; `libaacenc.a` not linked).
+- **H.264/H.265 encoder + `libvenc_base.so`**, *done* (clean-room freecodec).
+  Residual gap vs the vendor engine: rate control / ME (roughly 2 to 4× the bits at
   the same QP).
-- **MPP middleware** (`fenc_`/`fisp_`/`fcap_`) — *done*; the SDK is fetched at
+- **MPP middleware** (`fenc_`/`fisp_`/`fcap_`), *done*; the SDK is fetched at
   build time for the optional vendor comparison builds but contributes no object
   to the shipped binary.
 - **Known:** the SDK is only needed for vendor comparison builds; see
@@ -223,24 +223,24 @@ links no vendor object.
 
 ## Changelog
 
-- **2026-10-03** — repo flattened (`work/` removed); overlay release now built and
+- **2026-10-03**, repo flattened (`work/` removed); overlay release now built and
   published by CI; README restructured.
-- **2026-10-02** — model-keyed capture geometry (no per-model `.env`).
-- **2026-09-30** — H.265 separate module; VUI timing, configurable IDR, tracking
+- **2026-10-02**, model-keyed capture geometry (no per-model `.env`).
+- **2026-09-30**, H.265 separate module; VUI timing, configurable IDR, tracking
   rate control.
-- **2026-09-29** — H.265 on-device; OSD and 3-D filter on the H.265 path.
+- **2026-09-29**, H.265 on-device; OSD and 3-D filter on the H.265 path.
 
 ## Credits
 
-- **[lindenis-org](https://github.com/lindenis-org)** — the Lindenis V831 SDK
+- **[lindenis-org](https://github.com/lindenis-org)**, the Lindenis V831 SDK
   (`eyesee-mpp`) and the musl cross-toolchain this builds against.
-- **[roleoroleo](https://github.com/roleoroleo)** — the `fshare` framing and
+- **[roleoroleo](https://github.com/roleoroleo)**, the `fshare` framing and
   video-push path were reverse engineered with reference to his **rRTSPServer**;
   the boot pattern follows **yi-hack-Allwinner-v2**.
 - **[freewinner](https://github.com/hutchx86/freewinner) / freecodec**
-  (AGPL-3.0-only) — the clean-room ISP 3A/register tier, the H.264/H.265 encoder
+  (AGPL-3.0-only), the clean-room ISP 3A/register tier, the H.264/H.265 encoder
   and `libvenc_base`, linked into the deploy build.
-- **[yi-protect](https://github.com/hutchx86/yi-protect)** — the UniFi Protect
+- **[yi-protect](https://github.com/hutchx86/yi-protect)**, the UniFi Protect
   bridge this daemon feeds.
 
 Full attribution is in [`NOTICE`](NOTICE).
