@@ -276,8 +276,8 @@ static void *night_poller(void *arg)
             night_ref = -1;
         }
         lv = AW_MPI_ISP_GetEnvLV(0);
-        if (lv <= 0)
-            continue;                       /* AE not valid yet */
+        if (lv < 0)
+            continue;       /* no AE statistic yet; 0 is a valid pitch-black reading */
         g_lv_live = lv;
         if (++tick % 10 == 0)
             fprintf(stderr, "mediad: auto day/night poll lv=%d lux=%.1f\n",
