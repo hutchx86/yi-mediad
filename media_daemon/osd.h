@@ -22,6 +22,8 @@ enum {
     OSD_LOGO,         /* show logo (placeholder) */
     OSD_BITRATE,      /* show encoder bitrate (streamer-stats line) */
     OSD_TEXT_SCALE,   /* 0..100 (Protect textScale) */
+    OSD_TEXT_SCALE_HIGH, /* -1 follow textScale, 0 half, 1 base, 2 2x */
+    OSD_TEXT_SCALE_LOW,  /* 0 half, 1 base (the 640x360 stream caps at base) */
     OSD_LOGO_SCALE,   /* 0..100 (Protect logoScale) */
     OSD_COLOR,        /* overlayColorId: palette index */
     OSD_POS,          /* text block position: 0 TL, 1 TR, 2 BL, 3 BR */
@@ -36,6 +38,7 @@ void osd_rebind_venc(int chn, struct mediad_venc *venc);
 
 /* Start drawing on the given venc channels (must already exist). camera_name
  * may be NULL. Returns 0 on success. */
+void osd_defaults(void);
 int osd_start(const osd_chan_cfg *chans, int nchan, const char *camera_name);
 void osd_stop(void);
 

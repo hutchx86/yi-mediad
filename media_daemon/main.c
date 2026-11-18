@@ -1322,6 +1322,10 @@ int main(void)
         }
     }
 
+    /* OSD defaults must exist before isp_control_start(): it loads mediad.conf,
+     * whose osd_* keys would otherwise be overwritten inside osd_start(). */
+    osd_defaults();
+
     /* Control surface for Protect's picture settings; failure is non-fatal. */
     if (isp_control_start(isp_dev) < 0)
         fprintf(stderr, "mediad: ISP control surface unavailable\n");

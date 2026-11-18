@@ -87,6 +87,8 @@ are H.264-only; H.265 has its own window. The startup codec is `MEDIAD_CODEC_HIG
 | --- | --- | --- |
 | `MEDIAD_OSD_ENABLE`, `MEDIAD_OSD_DATE` | 1 | Initial OSD / date line state. |
 | `MEDIAD_OSD_NAME` | client device name, else model | Camera name shown. |
+| `MEDIAD_OSD_TEXT_SCALE_HIGH` | -1 | High-stream text size: -1 follows Protect's `textScale`, 0 half (4x8), 1 base (8x16), 2 double (16x32). |
+| `MEDIAD_OSD_TEXT_SCALE_LOW` | 0 | Low-stream text size: 0 half (4x8), 1 base (8x16). Default half so the upscaled 640x360 OSD matches HQ on screen. |
 | `MEDIAD_OSD_LUMA_HI`, `MEDIAD_OSD_LUMA_LO` | built in | Background thresholds (AE statistics units) for switching the letter colour. |
 | `MEDIAD_OSD_HWINV` | unset | `1`: use the encoder's per-frame inversion instead. |
 | `MEDIAD_OSD_TRACE` | unset | `1`: log colour decisions. |

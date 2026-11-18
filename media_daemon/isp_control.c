@@ -127,6 +127,10 @@ static int set_osd_br(int d, int v)      { (void)d; return osd_set(OSD_BITRATE, 
 static int get_osd_br(int d, int *v)     { (void)d; *v = osd_get(OSD_BITRATE); return 0; }
 static int set_osd_tscale(int d, int v)  { (void)d; return osd_set(OSD_TEXT_SCALE, v); }
 static int get_osd_tscale(int d, int *v) { (void)d; *v = osd_get(OSD_TEXT_SCALE); return 0; }
+static int set_osd_tscale_hi(int d, int v)  { (void)d; return osd_set(OSD_TEXT_SCALE_HIGH, v); }
+static int get_osd_tscale_hi(int d, int *v) { (void)d; *v = osd_get(OSD_TEXT_SCALE_HIGH); return 0; }
+static int set_osd_tscale_lo(int d, int v)  { (void)d; return osd_set(OSD_TEXT_SCALE_LOW, v); }
+static int get_osd_tscale_lo(int d, int *v) { (void)d; *v = osd_get(OSD_TEXT_SCALE_LOW); return 0; }
 static int set_osd_lscale(int d, int v)  { (void)d; return osd_set(OSD_LOGO_SCALE, v); }
 static int get_osd_lscale(int d, int *v) { (void)d; *v = osd_get(OSD_LOGO_SCALE); return 0; }
 static int set_osd_color(int d, int v)   { (void)d; return osd_set(OSD_COLOR, v); }
@@ -513,6 +517,8 @@ static struct ctl g_controls[] = {
     { "osd_logo",       0,               0,   1,   1,   set_osd_logo,  get_osd_logo },
     { "osd_bitrate",    0,               0,   1,   1,   set_osd_br,    get_osd_br },
     { "osd_text_scale", 0,               0,   100, 50,  set_osd_tscale, get_osd_tscale },
+    { "osd_text_scale_high", 0,         -1,   2,   -1, set_osd_tscale_hi, get_osd_tscale_hi },
+    { "osd_text_scale_low",  0,          0,   1,    0, set_osd_tscale_lo, get_osd_tscale_lo },
     { "osd_logo_scale", 0,               0,   100, 50,  set_osd_lscale, get_osd_lscale },
     { "osd_color",      0,               0,   5,   0,   set_osd_color, get_osd_color },
     { "osd_pos",        0,               0,   3,   0,   set_osd_pos,   get_osd_pos },

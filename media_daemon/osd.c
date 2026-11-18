@@ -102,6 +102,25 @@ static void draw_char(unsigned short *b, unsigned w, unsigned hh, int x, int y,
 
     if (ch < OSD_FONT_FIRST || ch > OSD_FONT_LAST)
         ch = '?';
+    g = osd_font[ch - OSD_FONT_FIRST];
+    if (scale == 0) {
+        /* Half cell (4x8) for the small/low stream: OR each 2x2 source block
+         * into one pixel so thin strokes survive the downsample. */
+        int dy, dx;
+
+        for (r = 0; r < OSD_FONT_H / 2; r++)
+            for (col = 0; col < OSD_FONT_W / 2; col++) {
+                int on = 0;
+
+                for (dy = 0; dy < 2; dy++)
+                    for (dx = 0; dx < 2; dx++)
+                        if (g[r * 2 + dy] & (0x80 >> (col * 2 + dx)))
+                            on = 1;
+                if (on)
+                    px(b, w, hh, x + col, y + r, c);
+            }
+        return;
+    }
     if (scale == 2) {
         /* Native 16x32 glyph (same cell as 2x the base font, drawn unscaled). */
         const unsigned short *g2 = osd_font2x[ch - OSD_FONT_FIRST];
@@ -112,7 +131,6 @@ static void draw_char(unsigned short *b, unsigned w, unsigned hh, int x, int y,
                     px(b, w, hh, x + col, y + r, c);
         return;
     }
-    g = osd_font[ch - OSD_FONT_FIRST];
     for (r = 0; r < OSD_FONT_H; r++)
         for (col = 0; col < OSD_FONT_W; col++)
             if (g[r] & (0x80 >> col))
@@ -124,7 +142,9 @@ static void draw_char(unsigned short *b, unsigned w, unsigned hh, int x, int y,
 static void draw_str(unsigned short *b, unsigned w, unsigned hh, int x, int y,
                      int scale, unsigned short c, const char *s)
 {
-    for (; *s; s++, x += OSD_FONT_W * scale)
+    int step = scale ? OSD_FONT_W * scale : OSD_FONT_W / 2;
+
+    for (; *s; s++, x += step)
         draw_char(b, w, hh, x, y, scale, c, (unsigned char)*s);
 }
 
@@ -162,12 +182,19 @@ static int text_scale(void)
     return g_ctl[OSD_TEXT_SCALE] >= 50 ? 2 : 1;
 }
 
-/* Per-channel scale, capped by the region size chosen at start (the LOW stream
- * is 640x360, where scale 2 would be huge). */
+/* Per-channel scale. The high stream follows Protect's textScale unless
+ * overridden; the low stream defaults to half (4x8) so its on-screen size
+ * matches the high stream when the app upscales 640x360. */
 static int chan_scale(osd_chan *ch)
 {
-    int s = text_scale();
-    return s > ch->max_scale ? ch->max_scale : s;
+    int s = ch->venc_chn == 0 ? g_ctl[OSD_TEXT_SCALE_HIGH]
+                              : g_ctl[OSD_TEXT_SCALE_LOW];
+
+    if (s < 0)
+        s = text_scale();
+    if (s > ch->max_scale)
+        s = ch->max_scale;
+    return s;
 }
 
 static void render_info(osd_chan *ch, int x, int y, int show)
@@ -210,7 +237,9 @@ static void render_stats(osd_chan *ch, int x, int y, int show)
     memset(e->buf, 0, (size_t)e->w * e->hh * 2);
     {
         unsigned kbps = mediad_get_bitrate(ch->venc_chn == 0 ? "high" : "low") / 1000;
-        snprintf(s, sizeof(s), "HQ %u kbps", kbps);
+        const char *tag = ch->venc_chn == 0 ? "HQ" : "LQ";
+
+        snprintf(s, sizeof(s), "%s %u kbps", tag, kbps);
         draw_str(e->buf, e->w, e->hh, 0, 0, chan_scale(ch), color_for(g_ctl[OSD_COLOR]), s);
     }
 }
@@ -508,6 +537,28 @@ static void load_default_name(void)
     snprintf(g_name, sizeof(g_name), "Camera");
 }
 
+void osd_defaults(void)
+{
+    const char *e;
+
+    memset(g_ctl, 0, sizeof(g_ctl));
+    g_ctl[OSD_ENABLE] = 1;
+    g_ctl[OSD_DATE] = 1;
+    g_ctl[OSD_NAME] = 1;
+    g_ctl[OSD_LOGO] = 1;
+    g_ctl[OSD_BITRATE] = 1;
+    g_ctl[OSD_TEXT_SCALE] = 50;
+    g_ctl[OSD_TEXT_SCALE_HIGH] = -1;
+    g_ctl[OSD_TEXT_SCALE_LOW] = 0;
+    g_ctl[OSD_LOGO_SCALE] = 50;
+    g_ctl[OSD_COLOR] = 0;
+    g_ctl[OSD_POS] = 0;
+    if ((e = getenv("MEDIAD_OSD_ENABLE"))) g_ctl[OSD_ENABLE] = atoi(e);
+    if ((e = getenv("MEDIAD_OSD_DATE")))   g_ctl[OSD_DATE] = atoi(e);
+    if ((e = getenv("MEDIAD_OSD_TEXT_SCALE_HIGH"))) g_ctl[OSD_TEXT_SCALE_HIGH] = atoi(e);
+    if ((e = getenv("MEDIAD_OSD_TEXT_SCALE_LOW")))  g_ctl[OSD_TEXT_SCALE_LOW] = atoi(e);
+}
+
 int osd_start(const osd_chan_cfg *chans, int nchan, const char *camera_name)
 {
     int i;
@@ -522,19 +573,6 @@ int osd_start(const osd_chan_cfg *chans, int nchan, const char *camera_name)
     if ((e = getenv("MEDIAD_OSD_LUMA_LO")) && e[0])
         g_luma_lo = atoi(e);
     g_trace = ((e = getenv("MEDIAD_OSD_TRACE")) && e[0] == '1');
-
-    memset(g_ctl, 0, sizeof(g_ctl));
-    g_ctl[OSD_ENABLE] = 1;
-    g_ctl[OSD_DATE] = 1;
-    g_ctl[OSD_NAME] = 1;
-    g_ctl[OSD_LOGO] = 1;
-    g_ctl[OSD_BITRATE] = 1;
-    g_ctl[OSD_TEXT_SCALE] = 50;
-    g_ctl[OSD_LOGO_SCALE] = 50;
-    g_ctl[OSD_COLOR] = 0;
-    g_ctl[OSD_POS] = 0;
-    if ((e = getenv("MEDIAD_OSD_ENABLE"))) g_ctl[OSD_ENABLE] = atoi(e);
-    if ((e = getenv("MEDIAD_OSD_DATE")))   g_ctl[OSD_DATE] = atoi(e);
 
     if (camera_name && camera_name[0])
         snprintf(g_name, sizeof(g_name), "%s", camera_name);
