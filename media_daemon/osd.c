@@ -549,7 +549,7 @@ void osd_defaults(void)
     g_ctl[OSD_BITRATE] = 1;
     g_ctl[OSD_TEXT_SCALE] = 50;
     g_ctl[OSD_TEXT_SCALE_HIGH] = -1;
-    g_ctl[OSD_TEXT_SCALE_LOW] = 0;
+    g_ctl[OSD_TEXT_SCALE_LOW] = 1;
     g_ctl[OSD_LOGO_SCALE] = 50;
     g_ctl[OSD_COLOR] = 0;
     g_ctl[OSD_POS] = 0;
