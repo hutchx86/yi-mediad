@@ -499,8 +499,9 @@ static struct ctl g_controls[] = {
     { "mirror",     0,                  0,   1,   0,   set_mirror,     get_mirror },
     { "flip",       0,                  0,   1,   0,   set_flip,       get_flip },
     /* HIGH encoder bitrate (bps), driven by Protect's bitRateCbrAvg/VbrMax;
-     * LOW stays at its fixed 0.7 Mbps. */
-    { "bitrate",     0, 48000, 4000000, 2800000, set_bitrate,     get_bitrate },
+     * LOW stays at its fixed 0.7 Mbps. The range matches MEDIAD_BITRATE_MAX in
+     * main.c: a lower socket cap would reject a 6 Mbps mediad.conf pin. */
+    { "bitrate",     0, 48000, 6000000, 2800000, set_bitrate,     get_bitrate },
     /* Video codec: 0 = H.264, 1 = H.265/HEVC. Both channels switch; the change
      * re-creates the encoder on each channel's own thread at a frame boundary. */
     { "codec",       0,                  0,   1,   0,   set_codec,      get_codec },
