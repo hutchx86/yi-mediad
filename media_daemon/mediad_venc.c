@@ -367,9 +367,17 @@ void mediad_venc_request_idr(struct mediad_venc *v)
 
 int mediad_venc_set_bitrate(struct mediad_venc *v, int bps)
 {
+    fwm_venc_bitrate_range_t range;
+
     if (v == NULL || v->enc == NULL || bps <= 0)
         return -1;
-    return VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE, &bps) == 0 ? 0 : -1;
+    if (VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE, &bps) != 0)
+        return -1;
+    /* The open path programmes min=max=target; a runtime change must move the
+     * range too, or the encoder stays inside the old window. */
+    range.bitrate_min = bps;
+    range.bitrate_max = bps;
+    return VideoEncSetParameter(v->enc, FWM_VENC_PARAM_BITRATE_RANGE, &range) == 0 ? 0 : -1;
 }
 
 int mediad_venc_set_filter3d(struct mediad_venc *v, int strength)
