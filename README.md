@@ -132,7 +132,8 @@ which shows as a green image; update it to `9.0.21.16`.
   (statically linked) plus `libvenc_base.so`; no vendor blob. H.265 is validated
   on `y623` only.
 - **Bitrate**, HIGH 2.8 Mbps / LOW 0.7 Mbps by default; HIGH adjustable from
-  Protect and persisted. `MEDIAD_HIGH_BPS` / `MEDIAD_LOW_BPS` override at boot.
+  Protect up to 4 Mbps and persisted. `MEDIAD_HIGH_BPS` / `MEDIAD_LOW_BPS`
+  override at boot.
 - **Mic audio**, ALSA capture → AAC-LC, 16 kHz mono, ADTS, into the same ring.
 - **ISP pipeline**, the clean-room `freewinner` libisp framework, 3A and
   register/config tiers, on the V831 ISP-521 ABI.

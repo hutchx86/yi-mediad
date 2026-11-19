@@ -18,6 +18,9 @@
  * main.c. Clamped to [48 k, 6 M] internally. Used by the `bitrate` control. */
 int mediad_set_bitrate(const char *name, unsigned int bps);
 unsigned int mediad_get_bitrate(const char *name);
+/* Force an IDR on the next frame of `name` ("high"/"low"), main.c. Used by the
+ * `idr`/`idr_low` controls when a Protect stream starts. */
+int mediad_request_idr(const char *name);
 /* Video codec by channel name ("high"/"low"/"all"): 0 = H.264, 1 = H.265/HEVC.
  * A change re-creates that channel's encoder on its own thread at the next
  * frame boundary. Used by the `codec` control (Protect ChangeVideoSettings). */

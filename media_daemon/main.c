@@ -509,6 +509,28 @@ unsigned int mediad_get_bitrate(const char *name)
     return 0;
 }
 
+/* Force an IDR on the next encoded frame of one channel. Called from the
+ * `idr`/`idr_low` controls when Protect starts a stream, so a new viewer does
+ * not wait for the next scheduled IDR (up to the 5 s GOP). */
+int mediad_request_idr(const char *name)
+{
+    int i;
+
+    for (i = 0; i < NCHAN; i++) {
+        int r = -1;
+        if (strcmp(g_chans[i].name, name) != 0)
+            continue;
+        pthread_mutex_lock(&g_chans[i].vencMu);
+        if (g_chans[i].venc) {
+            mediad_venc_request_idr(g_chans[i].venc);
+            r = 0;
+        }
+        pthread_mutex_unlock(&g_chans[i].vencMu);
+        return r;
+    }
+    return -1;
+}
+
 /* Shutter mode: 0 auto, 1 short, 2 long. Here, not in isp_control.c, because
  * the VI struct has enums and isp_control.c is built -fshort-enums. */
 int mediad_set_shutter(int mode)

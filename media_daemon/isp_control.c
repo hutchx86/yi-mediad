@@ -103,6 +103,9 @@ void isp_control_set_orientation(int base_mirror, int base_flip)
 }
 static int set_bitrate(int d, int v)    { (void)d; return mediad_set_bitrate("high", (unsigned)v); }
 static int get_bitrate(int d, int *v)   { (void)d; *v = (int)mediad_get_bitrate("high"); return 0; }
+static int set_idr(int d, int v)        { (void)d; return v > 0 ? mediad_request_idr("high") : 0; }
+static int set_idr_low(int d, int v)    { (void)d; return v > 0 ? mediad_request_idr("low") : 0; }
+static int get_idr(int d, int *v)       { (void)d; *v = 0; return 0; }
 /* Video codec, per channel: 0 = H.264, 1 = H.265/HEVC. Protect selects it per
  * stream (video1 -> high, video2/3 -> low), so the channels switch independently
  * and a mixed settings object no longer churns the encoder. `codec` sets both. */
@@ -502,6 +505,10 @@ static struct ctl g_controls[] = {
      * LOW stays at its fixed 0.7 Mbps. The range matches MEDIAD_BITRATE_MAX in
      * main.c: a lower socket cap would reject a 6 Mbps mediad.conf pin. */
     { "bitrate",     0, 48000, 6000000, 2800000, set_bitrate,     get_bitrate },
+    /* Force an IDR on the next frame; the client sends this when a Protect
+     * stream starts so a viewer does not wait for the 5 s GOP. */
+    { "idr",         0,                  0,   1,   0,   set_idr,         get_idr },
+    { "idr_low",     0,                  0,   1,   0,   set_idr_low,     get_idr },
     /* Video codec: 0 = H.264, 1 = H.265/HEVC. Both channels switch; the change
      * re-creates the encoder on each channel's own thread at a frame boundary. */
     { "codec",       0,                  0,   1,   0,   set_codec,      get_codec },
