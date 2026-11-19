@@ -9,6 +9,26 @@ controls.
 Supported models: `y623` (Yi Pro 2k), `h51ga`/`h52ga` (Yi Dome Camera U),
 `r35gb` (Yi Dome Guard), `y291ga` (Yi 1080p Home).
 
+## Stock firmware
+
+`mediad` reads the camera's own ISP tuning from the stock `/home/app/rmm`.
+Update the camera in Yi Home to a tested build before installing, and compare
+the camera's image with the table (`md5sum /home/app/rmm`). The old h51ga
+`9.0.21.12` build fails the extraction and falls back to shim defaults, which
+shows as a green image; update it to `9.0.21.16`.
+
+| Model | Stock home | Stock `rmm` md5 | State |
+| --- | --- | --- | --- |
+| `h51ga` | `9.0.21.16_202611031656` | `4f53a67f8ea451a83f6c721c17e2f79d` | tested |
+| `h51ga` | `9.0.21.13_202109101104` | `24669ee2ac1601377c3b66e7736f486d` | tested |
+| `h51ga` | `9.0.21.12_202011061017` | `bc57673c7f8c1f2507ab74bd83867529` | update to `9.0.21.16` |
+| `h52ga` | stock dump 2026-09-22 | `7e071bafcb9871d60a275fd58002480c` | fleet |
+| `r35gb` | stock dump 2026-09-22 | `6c5a7f8c9ace9b521866a73a6f78b9da` | fleet |
+| `r35gb` (remote) | stock dump | `e3775c9ea7cd59e8e629e0ad5923ecec` | fleet |
+| `y291ga` | `12.0.35.8_202411121417` | `564bb52dc8921dae607ea1e40d34358e` | fleet |
+| `y623` | stock dump 2026-11-15 | not recorded | update; record md5 |
+| `h30ga` | `11.1.26.7_202606301651` | not recorded | update; record md5 |
+
 ## Contents
 
 Built from the repo root with `./build.sh && ./package.sh`:
