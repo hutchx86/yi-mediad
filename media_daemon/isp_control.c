@@ -40,6 +40,7 @@ struct ctl {
     int (*get)(int dev, int *v);
     unsigned char locked;   /* not settable over the socket; conf / web UI only */
     unsigned char pinned;   /* socket sets ACKed but ignored (conf/web UI value wins) */
+    unsigned char momentary; /* every set acts (IDR trigger): never dedupe by value */
 };
 
 static int set_saturation(int d, int v) { (void)d; return isp_config_set_saturation(v); }
@@ -506,9 +507,10 @@ static struct ctl g_controls[] = {
      * main.c: a lower socket cap would reject a 6 Mbps mediad.conf pin. */
     { "bitrate",     0, 48000, 6000000, 2800000, set_bitrate,     get_bitrate },
     /* Force an IDR on the next frame; the client sends this when a Protect
-     * stream starts so a viewer does not wait for the 5 s GOP. */
-    { "idr",         0,                  0,   1,   0,   set_idr,         get_idr },
-    { "idr_low",     0,                  0,   1,   0,   set_idr_low,     get_idr },
+     * stream starts so a viewer does not wait for the 5 s GOP. Momentary: an
+     * unchanged 1 is still a new request and must reach the encoder. */
+    { .key = "idr",     .vmax = 1, .set = set_idr,     .get = get_idr, .momentary = 1 },
+    { .key = "idr_low", .vmax = 1, .set = set_idr_low, .get = get_idr, .momentary = 1 },
     /* Video codec: 0 = H.264, 1 = H.265/HEVC. Both channels switch; the change
      * re-creates the encoder on each channel's own thread at a frame boundary. */
     { "codec",       0,                  0,   1,   0,   set_codec,      get_codec },
@@ -596,13 +598,16 @@ static void *apply_thread(void *arg)
         for (i = 0; i < NCTL; i++) {
             if (!pvalid[i])
                 continue;
-            if (g_applied_valid[i] && g_applied_val[i] == pv[i])
+            if (!g_controls[i].momentary &&
+                g_applied_valid[i] && g_applied_val[i] == pv[i])
                 continue;                          /* already applied */
             g_controls[i].set(g_isp_dev, pv[i]);
             if (g_controls[i].mask)
                 g_mask |= g_controls[i].mask;
-            g_applied_val[i] = pv[i];
-            g_applied_valid[i] = 1;
+            if (!g_controls[i].momentary) {
+                g_applied_val[i] = pv[i];
+                g_applied_valid[i] = 1;
+            }
         }
     }
     return NULL;
